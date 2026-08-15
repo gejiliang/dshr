@@ -66,12 +66,15 @@
 **验收里必须有一条端到端证明**：host 发来 `approval/requested` → TUI 显示 → 作答 →
 host 收到 `/api/respond` 且回执 `accepted: true`。这条不过，整个功能就是假的。
 
-### 5. `@dshr/state` 的工厂名钉死
+### 5. `@dshr/state` 的工厂名
 
 ```ts
-import { createDshrState } from '@dshr/state'
-const state = createDshrState({ client })   // CreateStateOptions
+import { createState } from '@dshr/state'
+const state = createState({ client })   // CreateStateOptions
 ```
+
+（本文最初写的是 `createDshrState`，但那时 state 包已经在并行开发中、看不到这份文档。
+实际导出的是 `createState`——包名已经带了 `dshr` 前缀，再重复一遍是冗余。以实现为准。）
 
 ## 装配顺序（`packages/cli`）
 
