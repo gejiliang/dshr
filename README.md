@@ -43,34 +43,43 @@ Three things fall out of building it this way:
 
 ## Status
 
+**139 tests, all green. The whole stack runs against a real dsh host.**
+
 | | | |
 |---|---|---|
 | dsh host contract | ✅ | verified live against `0.1.0-rc.6` — [`docs/dsh-contract.md`](docs/dsh-contract.md) |
-| `@dshr/protocol` | ✅ | wire carrier; 14 tests, 3 of them against a live host |
-| `@dshr/tui` | ✅ | conversation, composer, tool rows, approvals; 32 tests asserting rendered ANSI |
-| `@dshr/shell` | ✅ | tabs, panes, sidebar, keys; 40 tests, layout logic is pure and ink-free |
-| `@dshr/state` | 🚧 | |
-| `@dshr/bundle` | 🚧 | the dsh profile bundle |
-| `@dshr/orchestrate` | 🚧 | orchestration verbs |
-| `dshr` (cli) | 🚧 | assembly — [`docs/integration.md`](docs/integration.md) |
+| `@dshr/protocol` | ✅ | the `/api` wire carrier — 14 tests, 3 against a live host |
+| `@dshr/state` | ✅ | frames folded into a renderable model — 13 tests |
+| `@dshr/tui` | ✅ | conversation, composer, tool rows, approvals — 32 tests asserting rendered ANSI |
+| `@dshr/shell` | ✅ | tabs, panes, sidebar, keys — 42 tests, layout logic pure and ink-free |
+| `@dshr/orchestrate` | ✅ | orchestration verbs — 13 tests |
+| `@dshr/bundle` | ✅ | the dsh profile bundle — 12 tests, `--dump-config` composes clean |
+| `dshr` (cli) | ✅ | assembly + end-to-end — 13 tests |
+| workspace management | 🚧 | the sidebar lists workspaces; creating and switching is not wired yet |
 
-Proven end to end so far — a client connects to a real dsh host, creates a session,
-prompts it, and receives the answer streamed chunk by chunk:
+The end-to-end test renders the **whole Shell** against a live host, submits a prompt, and
+asserts the streamed answer reaches the rendered frame — the only test that crosses all
+five packages:
 
-```console
-$ node tools/e2e.mjs http://127.0.0.1:39081
-· connection: ready
-session: session-923994ca-9a17-4567-b0b9-7c8f6b42619f
-· session-status running=true
-mock says: the reconnect backoff is in place.
-· session-status running=false
-
-streamed text : "mock says: the reconnect backoff is in place."
-chunk kinds   : block-start, block-end, usage, finish
-turn finished : true      history events: 29
+```
+ 1
+┌──────────────┐╭───────────────────────────────────────────────╮
+│工作区         ││○ (新会话)                                      │
+│dshr          ││ 把 protocol 包的重连逻辑改成指数退避，上界 10 秒。 │
+│ ○ (新会话)   ││ mock says: the reconnect backoff is in place.  │
+│              ││╭─────────────────────────────────────────────╮│
+│              │││ Type a message…                             ││
+│              ││╰─────────────────────────────────────────────╯│
+└──────────────┘╰───────────────────────────────────────────────╯
+tabs:1                                    mock-model · idle · connected
 ```
 
 That run used **no credentials at all** — see [Development](#development).
+
+It also earned its keep: it caught two defects no unit test could have, because both only
+exist between packages. `session.create` rejects `workspaceId` and `cwd` together, and
+ink's `<Static>` is document-level — so the conversation escaped its pane and rendered
+above the tab bar. Details in [`docs/integration.md`](docs/integration.md).
 
 ## Requirements
 
@@ -94,8 +103,18 @@ node tools/e2e.mjs http://127.0.0.1:39081
 ```
 
 The `settings.yaml` this needs, and the one trap in it, are in
-[`docs/profile.md`](docs/profile.md). Other tools: `tools/preview.mjs` renders one TUI
-frame so you can look at it, `tools/probe-events.mjs` dumps the real session-event shapes.
+[`docs/profile.md`](docs/profile.md).
+
+| tool | what it does |
+|---|---|
+| `tools/mock-llm.mjs` | a scriptable fake OpenAI endpoint — success, tool calls, disconnects, stalls |
+| `tools/e2e.mjs` | connects, creates a session, prompts, prints the streamed answer |
+| `tools/demo-live.mjs` | renders the assembled TUI against a live host and prints the frame |
+| `tools/preview.mjs` | renders one TUI frame from fake data, for looking at the design |
+| `tools/probe-events.mjs` | dumps the real session-event shapes off a live host |
+
+Run the tests with `npx tsc --build && node --test packages/*/test/*.test.ts`. Tests that
+need a host skip themselves when one is not reachable.
 
 ## Security
 
