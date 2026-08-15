@@ -25,6 +25,14 @@ export interface ComposerProps {
   readonly onSubmit: (text: string) => void
 }
 
+/**
+ * 键位分层契约：Ctrl 组合键是 shell 前缀层的领域。
+ * ink 的 useInput 是广播模型——前缀键（Ctrl-B）到达的同一拍 Composer 也会看到，
+ * 而 shell 的 `prefixPending` 抑制要等下一拍才生效。
+ * 所以 **Composer 必须忽略 `key.ctrl` 的按键**（正规文本输入框本来也这么做），
+ * shell 侧则保证前缀后续键那一拍 `focused=false`。两层合起来才没有泄漏。
+ */
+
 /** pane 内的待决交互（审批 / 提问）提示条。 */
 export interface PendingPromptProps {
   readonly pending: PendingInteraction
