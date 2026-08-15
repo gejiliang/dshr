@@ -62,7 +62,7 @@ function makeComponents(probe: Probe) {
 
 test('启动即开第一个 tab 并自动开第一个会话', async () => {
   const probe: Probe = { createSessionCalls: 0, composerInput: [], prompts: [] }
-  render(h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), workspaceId: 'ws-1' }))
+  render(h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), initialWorkspaceId: 'ws-1' }))
   await tick()
   assert.equal(probe.createSessionCalls, 1, '新 tab 默认开新会话')
 })
@@ -70,7 +70,7 @@ test('启动即开第一个 tab 并自动开第一个会话', async () => {
 test('Ctrl-B c：前缀被消费（不进输入框），新 tab 连带新会话', async () => {
   const probe: Probe = { createSessionCalls: 0, composerInput: [], prompts: [] }
   const { stdin, lastFrame } = render(
-    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), workspaceId: 'ws-1' }),
+    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), initialWorkspaceId: 'ws-1' }),
   )
   await tick()
   assert.equal(probe.createSessionCalls, 1)
@@ -88,7 +88,7 @@ test('Ctrl-B c：前缀被消费（不进输入框），新 tab 连带新会话'
 test('Ctrl-B % / "：分割出新 pane 并各自开会话', async () => {
   const probe: Probe = { createSessionCalls: 0, composerInput: [], prompts: [] }
   const { stdin } = render(
-    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), workspaceId: 'ws-1' }),
+    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), initialWorkspaceId: 'ws-1' }),
   )
   await tick()
   stdin.write('\x02')
@@ -103,7 +103,7 @@ test('Ctrl-B % / "：分割出新 pane 并各自开会话', async () => {
 test('非前缀按键透传给聚焦 pane 的输入框，回车触发 prompt', async () => {
   const probe: Probe = { createSessionCalls: 0, composerInput: [], prompts: [] }
   const { stdin } = render(
-    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), workspaceId: 'ws-1' }),
+    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), initialWorkspaceId: 'ws-1' }),
   )
   await tick()
   stdin.write('hi')
@@ -118,7 +118,7 @@ test('非前缀按键透传给聚焦 pane 的输入框，回车触发 prompt', a
 test('Ctrl-B s 开关侧栏', async () => {
   const probe: Probe = { createSessionCalls: 0, composerInput: [], prompts: [] }
   const { stdin, lastFrame } = render(
-    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), workspaceId: 'ws-1' }),
+    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), initialWorkspaceId: 'ws-1' }),
   )
   await tick()
   assert.ok((lastFrame() ?? '').includes('工作区'), '侧栏默认开')
@@ -135,7 +135,7 @@ test('Ctrl-B s 开关侧栏', async () => {
 test('两个 pane 同时挂载：打字只落进焦点 pane 的 Composer', async () => {
   const probe: Probe = { createSessionCalls: 0, composerInput: [], prompts: [] }
   const { stdin } = render(
-    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), workspaceId: 'ws-1' }),
+    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), initialWorkspaceId: 'ws-1' }),
   )
   await tick()
   stdin.write('\x02')

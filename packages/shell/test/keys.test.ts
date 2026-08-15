@@ -31,6 +31,18 @@ test('Ctrl-B c → newTab；n/p → 切 tab；%/" → 分割；x → 关 pane；
   }
 })
 
+test('Ctrl-B w / W -> 工作区选择 / 新建工作区', () => {
+  for (const [input, type] of [['w', 'selectWorkspace'], ['W', 'newWorkspace']] as Array<[string, string]>) {
+    const d = new KeyDispatcher()
+    d.dispatch(PREFIX)
+    const r = d.dispatch({ input })
+    assert.equal(r.kind, 'action', input)
+    if (r.kind === 'action') assert.equal(r.action.type, type)
+  }
+  // 大小写是两个不同的键
+  assert.notEqual(DEFAULT_KEY_TABLE.bindings['w'], DEFAULT_KEY_TABLE.bindings['W'])
+})
+
 test('前缀 + 方向键 → focusPane', () => {
   const d = new KeyDispatcher()
   d.dispatch(PREFIX)

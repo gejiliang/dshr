@@ -19,6 +19,8 @@ export interface SidebarProps {
   /** 当前聚焦 pane 绑定的会话，用于高亮。 */
   readonly activeSessionId: SessionId | null
   readonly width: number
+  /** 当前活动工作区（shell 内部状态），有则用 ▶ 标出。 */
+  readonly activeWorkspaceId?: string | null
 }
 
 function sessionTitle(s: SessionSummary): string {
@@ -36,13 +38,15 @@ function StatusDot({ status }: { readonly status: AgentStatus }): ReactElement {
   return <Text {...extra}>{mark.symbol}</Text>
 }
 
-export function Sidebar({ state, activeSessionId, width }: SidebarProps): ReactElement {
+export function Sidebar({ state, activeSessionId, width, activeWorkspaceId }: SidebarProps): ReactElement {
   return (
     <Box flexDirection="column" width={width} borderStyle="single" borderColor="gray">
       <Text bold>工作区</Text>
-      {state.workspaces.map((ws) => (
-        <Box key={String(ws.workspaceId)} flexDirection="column">
-          <Text color="cyan">{ws.title}</Text>
+      {state.workspaces.map((ws) => {
+        const activeWs = activeWorkspaceId !== null && activeWorkspaceId !== undefined && String(ws.workspaceId) === activeWorkspaceId
+        return (
+          <Box key={String(ws.workspaceId)} flexDirection="column">
+            <Text color="cyan" {...(activeWs ? { bold: true } : {})}>{`${activeWs ? '▶ ' : '  '}${ws.title}`}</Text>
           {ws.sessionIds.map((sid) => {
             const s = state.sessions.get(sid)
             if (!s) return null
@@ -54,8 +58,9 @@ export function Sidebar({ state, activeSessionId, width }: SidebarProps): ReactE
               </Box>
             )
           })}
-        </Box>
-      ))}
+          </Box>
+        )
+      })}
       {state.workspaces.length === 0 ? <Text dimColor>(无工作区)</Text> : null}
     </Box>
   )
