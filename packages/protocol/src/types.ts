@@ -23,8 +23,13 @@ export type Unsubscribe = () => void
 export interface HostDescription {
   version: string
   cwd: string
-  provider: string
-  model: string
+  /**
+   * 部署默认 provider。上游契约里是 optional（`dsh-host-apiproxy/api/host.d.ts`，
+   * 0.1.0-rc.6）——配置缺省时字段整个缺省，client 不得假设它必在。
+   */
+  provider?: string
+  /** 同 `provider`。 */
+  model?: string
   attachedSessions: number
   canOpenPath: boolean
 }
