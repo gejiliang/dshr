@@ -35,6 +35,25 @@
   （上游文档两处留了 TUI 的位置），后半句只对 headless 这个 surface 成立，
   会话本身一直强制落盘。**结论过期了就重验，别继承。**
 
+## 在无人值守的会话里跑 git：必须 `GIT_EDITOR=true`
+
+任何可能拉起编辑器的 git 命令——`rebase --continue`、`merge`（有冲突时）、
+`commit` 不带 `-m`、`revert`——在没有人坐在终端前的会话里会**静默挂死**：
+git 拉起 `vim` 等输入，永远等不到，而且**不报错、不超时**，只是一直「在跑」。
+
+```sh
+GIT_EDITOR=true git rebase --continue     # ✅
+git merge --no-edit main                  # ✅
+git commit -m "…"                         # ✅
+```
+
+踩过：一个 worker 的 `git rebase --continue` 挂了 13 分钟，
+`ps` 里能看到 `git commit -e` 的子进程是 `/usr/bin/vim`。
+中断那一轮**没用**——子进程还在，harness 被工具调用堵着，连纠偏消息都投递不进去，
+最后只能从外面 kill 那个编辑器进程。
+
+**`pnpm-lock.yaml` 的冲突一律取一边再重跑 `pnpm install`**，不要手工合并。
+
 ## 验收只能在仓库内自证
 
 ✅ 单元测试、类型检查、`--dry-run` / `--dump-config` 的退出码与输出、读配置确认格式
