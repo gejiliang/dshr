@@ -132,10 +132,41 @@ dshr --resume <sessionId>  # 直接打开某个已存在的会话（会话强制
    llm-pi-ai:
      providers:
        mock:
+         apiKeyEnv: MOCK_API_KEY        # ← 必须有，见下面那个坑
          api: openai-completions
          baseURL: http://127.0.0.1:8100/v1
-         models: [ { id: mock-model } ]
+         models:
+           - id: mock-model
+             contextWindow: 131072
+             maxTokens: 4096
+
+   agent-default-model:
+     provider: mock
+     model: mock-model
    ```
+
+> ⚠️ **`apiKeyEnv` 不能省。** 适配器的规则是「**完全**不配凭据的路由才走 pi-ai 的环境发现」——
+> 而手工声明的路由在那里什么也发现不到，于是 **`dsh: PI_AI_ERROR: No API key for provider: mock`**。
+> 给一个引用就行，值随便（mock 端不配 `apiKey` 时接受任意 token）。**这条是踩出来的。**
+
+### 完整可复现的实测（2026-08-15，dsh 0.1.0-rc.6）
+
+```console
+$ node tools/mock-llm.mjs --port 8100 --text "mock says: the reconnect backoff is in place."
+mock llm: http://127.0.0.1:8100
+sequence: success (last repeats)
+
+$ MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome \
+    npx @deepseek-ai/dsh@0.1.0-rc.6 --profile headless "Reply with exactly one short sentence."
+mock says: the reconnect backoff is in place.
+
+$ MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome \
+    npx @deepseek-ai/dsh@0.1.0-rc.6 web --port 39081
+dsh web: http://127.0.0.1:39081
+# host.describe → {"provider":"mock","model":"mock-model", ...}
+```
+
+**整条链路零凭据跑通**：agent loop、工具、会话落盘、host 平面全都是真的，只有模型是假的。
 
 有用的行为（全部来自 README 的行为表）：
 
