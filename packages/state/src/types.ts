@@ -114,6 +114,13 @@ export interface DshrState {
   /** 打开（必要时创建 host 侧 agent）一个会话的视图。 */
   conversation(sessionId: SessionId): ConversationView
 
+  /**
+   * 泛型 per-session 投影值表的当前快照（higher-seq-wins 后的最新值）。
+   * `title` / `contextPressure` / `contextBreakdown` 都是其中的键——状态行的
+   * 上下文用量从这里读，不是只有标题。每次调用返回一份拷贝。
+   */
+  projections(sessionId: SessionId): ReadonlyMap<string, unknown>
+
   createWorkspace(path: string, title?: string): Promise<WorkspaceId>
   createSession(input: { cwd: string; workspaceId?: WorkspaceId; agentPreset?: string }): Promise<SessionId>
   prompt(sessionId: SessionId, text: string): Promise<void>
