@@ -132,14 +132,22 @@ export function closePane(root: LayoutNode, paneId: string): CloseResult {
   return { root, closedSessionId: null, found: false }
 }
 
-/** 调整包含 paneId 的最近一级 split 的 ratio（+delta 朝 first 一侧）。 */
+/** 调整 paneId 的**直接父 split** 的 ratio（+delta 朝 first 一侧）；上层祖先原样保留。 */
 export function resizePane(root: LayoutNode, paneId: string, delta: number): LayoutNode {
   if (root.kind === 'pane') return root
+  // pane 是本级 split 的直接孩子：只调这一级
+  if (root.first.kind === 'pane' && root.first.paneId === paneId) {
+    return { ...root, ratio: clampRatio(root.ratio + delta) }
+  }
+  if (root.second.kind === 'pane' && root.second.paneId === paneId) {
+    return { ...root, ratio: clampRatio(root.ratio - delta) }
+  }
+  // 还没到直接父：只往下走，不动本层 ratio
   if (containsPane(root.first, paneId)) {
-    return { ...root, ratio: clampRatio(root.ratio + delta), first: resizePane(root.first, paneId, delta) }
+    return { ...root, first: resizePane(root.first, paneId, delta) }
   }
   if (containsPane(root.second, paneId)) {
-    return { ...root, ratio: clampRatio(root.ratio - delta), second: resizePane(root.second, paneId, delta) }
+    return { ...root, second: resizePane(root.second, paneId, delta) }
   }
   return root
 }

@@ -17,7 +17,8 @@ const tick = () => new Promise((r) => setTimeout(r, 30))
 
 interface Probe {
   createSessionCalls: number
-  composerInput: string[]
+  /** [sessionId, 输入] —— 按 pane 分清是谁收到的。 */
+  composerInput: Array<[string, string]>
   prompts: Array<[string, string]>
 }
 
@@ -42,12 +43,12 @@ function makeFakeState(probe: Probe) {
 
 function makeComponents(probe: Probe) {
   const Conversation = () => h(Text, null, 'CONV')
-  const Composer = ({ focused, onSubmit }: { focused: boolean; onSubmit: (t: string) => void }) => {
+  const Composer = ({ sessionId, focused, onSubmit }: { sessionId: string; focused: boolean; onSubmit: (t: string) => void }) => {
     useInput(
       (input, key) => {
         if (key.ctrl) return // 契约：Ctrl 组合键是 shell 前缀层的领域
-        probe.composerInput.push(input)
-        if (input === '\r') onSubmit(probe.composerInput.join(''))
+        probe.composerInput.push([sessionId, input])
+        if (input === '\r') onSubmit(input)
       },
       { isActive: focused },
     )
@@ -107,7 +108,7 @@ test('非前缀按键透传给聚焦 pane 的输入框，回车触发 prompt', a
   await tick()
   stdin.write('hi')
   await tick()
-  assert.equal(probe.composerInput.join(''), 'hi')
+  assert.equal(probe.composerInput.map(([, i]) => i).join(''), 'hi')
   stdin.write('\r')
   await tick()
   assert.equal(probe.prompts.length, 1)
@@ -129,4 +130,20 @@ test('Ctrl-B s 开关侧栏', async () => {
   stdin.write('s')
   await tick()
   assert.ok((lastFrame() ?? '').includes('工作区'), '侧栏再开')
+})
+
+test('两个 pane 同时挂载：打字只落进焦点 pane 的 Composer', async () => {
+  const probe: Probe = { createSessionCalls: 0, composerInput: [], prompts: [] }
+  const { stdin } = render(
+    h(Shell as never, { state: makeFakeState(probe), components: makeComponents(probe), workspaceId: 'ws-1' }),
+  )
+  await tick()
+  stdin.write('\x02')
+  stdin.write('%') // 竖分；焦点移到新 pane（sess-2）
+  await tick()
+  assert.equal(probe.createSessionCalls, 2)
+  probe.composerInput.length = 0
+  stdin.write('k')
+  await tick()
+  assert.deepEqual(probe.composerInput, [['sess-2', 'k']], '只有焦点 pane 收到键')
 })

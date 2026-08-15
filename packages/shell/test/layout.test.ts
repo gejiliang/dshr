@@ -226,6 +226,32 @@ test('resizePane 调整包含焦点的最近一级 split', () => {
   if (tree.kind === 'split') assert.equal(tree.ratio, 0.5)
 })
 
+test('resizePane 嵌套：只动直接父 split，祖先 ratio 不变', () => {
+  resetLayoutIds()
+  // Split(A, 0.5)
+  //   first:  Pane(X)
+  //   second: Split(B, 0.5)
+  //             first:  Pane(Y)
+  //             second: Pane(Z)
+  const x = createPane()
+  let root = splitPane(x, x.paneId, 'v')
+  const y = paneIds(root)[1]
+  assert.ok(y)
+  root = splitPane(root, y, 'h')
+  assert.equal(paneCount(root), 3)
+
+  const resized = resizePane(root, y, 0.1)
+  if (resized.kind !== 'split') return assert.fail('顶层仍是 split')
+  assert.equal(resized.ratio, 0.5, '外层 A.ratio 不变')
+  if (resized.second.kind !== 'split') return assert.fail('右侧仍是 split')
+  assert.ok(Math.abs(resized.second.ratio - 0.6) < 1e-9, '内层 B.ratio 0.5 → 0.6')
+  // 原树不可变
+  if (root.kind === 'split' && root.second.kind === 'split') {
+    assert.equal(root.ratio, 0.5)
+    assert.equal(root.second.ratio, 0.5)
+  }
+})
+
 /* ------------------------------ tabs ------------------------------ */
 
 test('createTab 自带一个 pane 且聚焦', () => {
