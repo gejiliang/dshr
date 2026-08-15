@@ -76,6 +76,32 @@ const state = createState({ client })   // CreateStateOptions
 （本文最初写的是 `createDshrState`，但那时 state 包已经在并行开发中、看不到这份文档。
 实际导出的是 `createState`——包名已经带了 `dshr` 前缀，再重复一遍是冗余。以实现为准。）
 
+### 6. ink 的 `<Static>` 与多 pane 布局不兼容（实测，已改）
+
+`@dshr/tui` 的 `Conversation` 最初用 ink 的 `<Static>` 做「已完成项只追加、永不重绘」的优化——
+那是**单窗格全屏 TUI（opencode 那种）的正解**，也是它当初被写进来的理由。
+
+**但 `<Static>` 是文档级的**：它的输出永远写在动态区上方，**无法被限制在某个 Box 里**。
+在 dshr 的多 pane 布局下，实测结果是会话内容整个跑到 tab 栏和侧栏**外面**去，
+pane 框里只剩一个输入框：
+
+```
+│ 把 protocol 包的重连逻辑改成指数退避…      ← 会话内容，跑到布局外面了
+│ mock says: the reconnect backoff is in place.
+ 1                                          ← tab 栏
+┌──────────────┐╭──────────────────────╮
+│工作区         ││○ (新会话)             │
+│dshr          ││╭────────────────────╮│
+│ ○ (新会话)   │││ Type a message…    ││   ← pane 里只剩输入框
+```
+
+**裁决：`Conversation` 不用 `<Static>`**，全部走普通渲染，用 `maxItems`（默认 200）
+的窗口兜住长会话的开销。代价是每帧重绘整棵子树；换来的是内容真的待在它该待的格子里。
+**这个取舍对「工作区」这个产品形态是必然的**——只要有第二个 pane，Static 就不能用。
+
+> 这条也说明为什么 `packages/cli/test/e2e.test.ts` 必须断言**渲染帧**而不只是数据模型：
+> 数据模型当时完全正确（`items: user, assistant`），错的只有渲染位置。
+
 ## 装配顺序（`packages/cli`）
 
 ```

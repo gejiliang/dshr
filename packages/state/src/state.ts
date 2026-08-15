@@ -139,9 +139,13 @@ class DshrStateImpl implements DshrState {
   }
 
   async createSession(input: { cwd: string; workspaceId?: WorkspaceId; agentPreset?: string }): Promise<SessionId> {
+    // ⚠️ host 侧的校验是 **workspaceId 或 cwd，不能两个都给**（实测：两个都传会回
+    // bad-request "session.create accepts workspaceId or cwd, not both"）。
+    // 工作区自己记得路径，所以有 workspaceId 时就只发它。
     const payload: RequestPayload<'session.create'> = {
-      cwd: input.cwd,
-      ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
+      ...(input.workspaceId !== undefined
+        ? { workspaceId: input.workspaceId }
+        : { cwd: input.cwd }),
       ...(input.agentPreset !== undefined ? { agentPreset: input.agentPreset } : {}),
     }
     const res = await this.client.call('session.create', payload)

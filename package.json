@@ -16,9 +16,13 @@
   "devDependencies": {
     "@deepseek-ai/dsh-llm-mock-server": "0.1.0-rc.6",
     "@dshr/protocol": "workspace:*",
+    "@dshr/shell": "workspace:*",
+    "@dshr/state": "workspace:*",
     "@dshr/tui": "workspace:*",
     "@types/node": "^22.0.0",
+    "dshr": "workspace:*",
     "ink": "^6.0.0",
+    "ink-testing-library": "^4.0.0",
     "react": "^19.0.0",
     "typescript": "^5.7.0"
   }

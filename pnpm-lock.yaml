@@ -14,21 +14,83 @@ importers:
       '@dshr/protocol':
         specifier: workspace:*
         version: link:packages/protocol
+      '@dshr/shell':
+        specifier: workspace:*
+        version: link:packages/shell
+      '@dshr/state':
+        specifier: workspace:*
+        version: link:packages/state
       '@dshr/tui':
         specifier: workspace:*
         version: link:packages/tui
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
+      dshr:
+        specifier: workspace:*
+        version: link:packages/cli
       ink:
         specifier: ^6.0.0
         version: 6.8.0(@types/react@19.2.18)(react@19.2.8)
+      ink-testing-library:
+        specifier: ^4.0.0
+        version: 4.0.0(@types/react@19.2.18)
       react:
         specifier: ^19.0.0
         version: 19.2.8
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+
+  packages/bundle:
+    dependencies:
+      '@deepseek-ai/dsh-cmdline':
+        specifier: 0.1.0-rc.6
+        version: 0.1.0-rc.6(@deepseek-ai/cordis-plugin-loader@1.0.2)(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1))
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.1
+        version: 3.18.1
+      commander:
+        specifier: ^15.0.0
+        version: 15.0.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: 4.0.1
+        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/cli:
+    dependencies:
+      '@dshr/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@dshr/shell':
+        specifier: workspace:*
+        version: link:../shell
+      '@dshr/state':
+        specifier: workspace:*
+        version: link:../state
+      '@dshr/tui':
+        specifier: workspace:*
+        version: link:../tui
+      ink:
+        specifier: ^6.0.0
+        version: 6.8.0(@types/react@19.2.18)(react@19.2.8)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      ink-testing-library:
+        specifier: ^4.0.0
+        version: 4.0.0(@types/react@19.2.18)
 
   packages/orchestrate:
     dependencies:
@@ -222,6 +284,13 @@ packages:
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
       '@deepseek-ai/dsh-host-webserver': ^0.1.0-rc.6
+      '@deepseek-ai/dsh-invariants': ^0.1.0-rc.6
+
+  '@deepseek-ai/dsh-cmdline@0.1.0-rc.6':
+    resolution: {integrity: sha512-dqRHF+kIlTBwt+fio/34ttp6B7Lrpm31A+EOoEwBuwaziiHTEAWVl50hS53dPFmPyVBRINavBdx7Fa7UT2/2iw==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.1
+      '@deepseek-ai/cordis-plugin-loader': ^1.0.2
       '@deepseek-ai/dsh-invariants': ^0.1.0-rc.6
 
   '@deepseek-ai/dsh-code-runtime@0.1.0-rc.6':
@@ -612,6 +681,10 @@ packages:
     resolution: {integrity: sha512-xxodCmBen3iy2i0WtAK8FlFNrRzjUqjRsMfho58xT/wvZU1YTM3fCnRjcy1gJPMepaRlgm/0e6w8SpWHpn3/cA==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
+  commander@15.0.0:
+    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
+    engines: {node: '>=22.12.0'}
+
   convert-to-spaces@2.0.1:
     resolution: {integrity: sha512-rcQ1bsQO9799wq24uE5AM2tAILy4gXGIK/njFWcVQkGNZ96edlpY+A7bjwvzjYvLDyzmG1MmMLZhpcsb+klNMQ==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
@@ -919,6 +992,12 @@ snapshots:
       - '@deepseek-ai/dsh-user-approval'
       - bufferutil
       - utf-8-validate
+
+  '@deepseek-ai/dsh-cmdline@0.1.0-rc.6(@deepseek-ai/cordis-plugin-loader@1.0.2)(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1))':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
+      '@deepseek-ai/cordis-plugin-loader': 1.0.2(@deepseek-ai/cordis@4.0.1)
+      '@deepseek-ai/dsh-invariants': 0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)
 
   '@deepseek-ai/dsh-code-runtime@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1))':
     dependencies:
@@ -1313,6 +1392,8 @@ snapshots:
   code-excerpt@4.0.0:
     dependencies:
       convert-to-spaces: 2.0.1
+
+  commander@15.0.0: {}
 
   convert-to-spaces@2.0.1: {}
 

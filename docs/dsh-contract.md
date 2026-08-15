@@ -295,6 +295,23 @@ node tools/probe-events.mjs                                # 直方图 + 真实�
 PROBE_MARKER=assistant/chunk node tools/probe-events.mjs   # 只看某类事件
 ```
 
+## 五之三、`session.create` 的互斥参数（实测踩过）
+
+**`session.create` 接受 `workspaceId` 或 `cwd`，不能两个都给。**
+
+```console
+$ ... payload:{"cwd":"/tmp/x"}                                    → ok
+$ ... payload:{"workspaceId":"d11d8851-…"}                        → ok
+$ ... payload:{"cwd":"/tmp/x","workspaceId":"d11d8851-…"}
+{"ok":false,"error":{"code":"bad-request",
+ "details":{"issues":[{"message":"session.create accepts workspaceId or cwd, not both"}]}}}
+```
+
+工作区自己记得路径，所以**有 `workspaceId` 时就只发它**。
+
+这条只有跨进程打真 host 才会暴露——用假 client 的单测怎么写都是绿的。
+它也是 `tools/e2e.mjs` 与 `packages/cli/test/e2e.test.ts` 存在的理由。
+
 ## 六、模型选择
 
 `host.describe` 返回的 `provider`/`model` 是**部署默认**，由 `dsh-agent-default-model` 服务在
