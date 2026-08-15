@@ -21,7 +21,14 @@ const cwd = process.argv[3] ?? process.cwd()
 
 const client = createDshrClient({ baseUrl })
 
-const seen = { text: '', tools: [], done: false }
+const seen = {
+  text: '',
+  reasoning: '',
+  tools: [],
+  chunkKinds: new Set(),
+  eventKinds: new Set(),
+  done: false,
+}
 
 client.onConnectionChange((s) => console.log(`· connection: ${s.status}`))
 
@@ -35,18 +42,26 @@ client.onHostFrame((frame) => {
 
 client.onMuxFrame((frame) => {
   if (frame.type === 'session/event') {
-    const e = frame.event
-    // 事件形状随上游版本漂移，这里只做粗读，够证明流是通的。
-    const type = e?.type ?? '?'
-    if (type.includes('text')) {
-      const delta = e?.delta ?? e?.text ?? ''
-      if (typeof delta === 'string') {
+    // mux 帧里 frame.event 就是 SessionEvent 本身（history 那边才多包一层）。
+    const event = frame.event
+    const type = event?.type ?? '?'
+    if (type === 'assistant/chunk') {
+      // data.chunk 是 dsh-llm 的原始 StreamChunk 联合。
+      const chunk = event.data?.chunk
+      if (chunk?.type === 'text-delta') {
+        const delta = chunk.text ?? chunk.delta ?? ''
         seen.text += delta
         process.stdout.write(delta)
+      } else if (chunk?.type === 'reasoning-delta') {
+        seen.reasoning += chunk.text ?? chunk.delta ?? ''
+      } else if (chunk?.type) {
+        seen.chunkKinds.add(chunk.type)
       }
     } else if (type.startsWith('tool/')) {
       seen.tools.push(type)
       console.log(`\n· ${type}`)
+    } else {
+      seen.eventKinds.add(type)
     }
   }
   if (frame.type === 'approval/requested') {
@@ -85,7 +100,10 @@ while (!seen.done && Date.now() < deadline) {
 
 console.log('\n\n── result ──')
 console.log(`streamed text : ${JSON.stringify(seen.text)}`)
+if (seen.reasoning) console.log(`reasoning     : ${JSON.stringify(seen.reasoning)}`)
 console.log(`tool events   : ${seen.tools.length ? seen.tools.join(', ') : '(none)'}`)
+console.log(`chunk kinds   : ${[...seen.chunkKinds].join(', ') || '(none)'}`)
+console.log(`other events  : ${[...seen.eventKinds].join(', ') || '(none)'}`)
 console.log(`turn finished : ${seen.done}`)
 
 const history = await client.call('session.history', { sessionId })
