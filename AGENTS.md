@@ -40,8 +40,9 @@
 ✅ 单元测试、类型检查、`--dry-run` / `--dump-config` 的退出码与输出、读配置确认格式
 ❌ 真安装、真部署、写 `~/.config` 或 `~/.dsh` 以外的地方、推远程、改数据库
 
-开发期**不需要真 provider**：把 `@deepseek-ai/dsh-llm-mock-server` 插进 profile
-就能在没有任何密钥的情况下跑通全链路。别为了「验证一下」去要密钥。
+开发期**不需要真 provider**：`@deepseek-ai/dsh-llm-mock-server` 是一个假的 OpenAI 兼容端点
+（**不是 dsh 插件，别往 profile 里 add**），起它 + 让 provider 指过去就能零密钥跑通全链路。
+接法见 [`docs/profile.md`](docs/profile.md) 末节。**别为了「验证一下」去要密钥。**
 
 ## 分包边界是硬的
 

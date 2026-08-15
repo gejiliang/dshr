@@ -269,8 +269,10 @@ llm-pi-ai:
 - 私有网关的 URL 认不出思考方言，需要时用 `compat.thinkingFormat`（只在 `openai-completions` 上有）。
 - 写坏的 profile 在**写入处**就被拒（`settings.mutate` 回 `settings-rejected`），不会存进去再静默禁用整个命名空间。
 
-**开发期不需要真 provider**：dsh 随包发 `@deepseek-ai/dsh-llm-mock-server`，
-把它插进 profile 就能在没有任何密钥的情况下跑完整条链路。
+**开发期不需要真 provider**：`@deepseek-ai/dsh-llm-mock-server` 是一个假的 OpenAI 兼容
+HTTP/SSE 端点（**不是 dsh 插件**，也不随 `@deepseek-ai/dsh` 一起装——它在 devDependencies 里）。
+起它再把 provider 的 `baseURL` 指过去，就能零密钥跑完整条链路。接法与行为表见
+[`profile.md`](profile.md) 末节。
 
 ## 八、profile 怎么组合
 

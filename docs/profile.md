@@ -104,13 +104,47 @@ dshr --resume <sessionId>  # 直接打开某个已存在的会话（会话强制
   agent-preset 的写作面）。**远程 client 的能力面天生更小，UI 要如实反映**，
   不要画一个按不动的按钮。
 
-## 开发期不需要真 provider
+## 开发期不需要真 provider（实测 2026-08-15）
 
-`@deepseek-ai/dsh-llm-mock-server` 已发布（**在 `next` tag 上，见契约文档第九节**），
-插进 profile 就能在没有任何密钥的情况下跑通全链路：
+`@deepseek-ai/dsh-llm-mock-server@0.1.0-rc.6` 已发布（**在 `next` tag 上，见契约文档第九节**）。
 
-```sh
-dsh plugin --profile dshr add @deepseek-ai/dsh-llm-mock-server@0.1.0-rc.6
-```
+⚠️ **它不是 dsh 插件，别往 profile 里 `dsh plugin add`。**
+它是一个**库** + 一个**假的 OpenAI 兼容 HTTP/SSE 端点**：
+接受 `POST /chat/completions` 与 `POST /v1/chat/completions`，
+每个请求按到达顺序消费一条脚本行为。README 原文写明它
+"exposes no installable binary"——只导出 `startMockLlmServer(options)`。
+
+所以正确的接法是**两步**：
+
+1. 起 mock 端点（我们自己写个几行的启动脚本调 `startMockLlmServer`）：
+   ```js
+   const server = await startMockLlmServer({
+     port: 8100,
+     sequence: ['success'],
+     repeatLast: true,           // 否则脚本耗尽后返回结构化 500
+     successText: 'hello from the mock',
+   })
+   // server.baseURL 是绑定后的 /v1 基址
+   ```
+   `apiKey` 可省，省了就**接受任意 token**。
+2. 让 dsh 的 provider 指过去（`$DSH_HOME/settings.yaml`）：
+   ```yaml
+   llm-pi-ai:
+     providers:
+       mock:
+         api: openai-completions
+         baseURL: http://127.0.0.1:8100/v1
+         models: [ { id: mock-model } ]
+   ```
+
+有用的行为（全部来自 README 的行为表）：
+
+| 行为 | 用来测什么 |
+|---|---|
+| `success` / `slow_success` / `reasoning_success` | 正常回答；带延迟；带 reasoning 前缀 |
+| `tool_call_success` | **工具调用**——TUI 的工具卡片渲染靠它 |
+| `partial_disconnect` / `stream_disconnect` / `stall` | 流中断与卡死，测重连与超时 |
+| `rate_limit` / `server_error` | 重试策略 |
+| `random` + `--repeat-last` + 权重 | 开放式压测 |
 
 **别为了「验证一下」去要真密钥。**
