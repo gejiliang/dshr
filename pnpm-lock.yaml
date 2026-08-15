@@ -30,6 +30,12 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/orchestrate:
+    dependencies:
+      '@dshr/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/protocol:
     dependencies:
       '@deepseek-ai/dsh-host-apiproxy':
