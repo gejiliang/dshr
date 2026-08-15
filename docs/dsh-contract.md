@@ -301,7 +301,32 @@ patch 的语义要记住两条，都踩过：
 其它可用旗标：`--dump-default-config` / `--dump-config` 只组合不启动。
 launcher 自己的旗标必须写在前面，**第一个它不认识的 token 开始就是 app 的参数**。
 
-## 九、已知会咬人的地方
+## 九、装包：`latest` 不是你要的那个（实测 2026-08-15）
+
+**`@deepseek-ai/dsh` 本体的 `latest` 是 `0.1.0-rc.6`，但它那些库包的 `latest` 停在 `0.0.1-rc.1`，
+0.1.x 这条线挂在 `next` 上。**
+
+```console
+$ npm view @deepseek-ai/dsh dist-tags
+{ latest: '0.1.0-rc.6', next: '0.1.0-rc.6' }
+
+$ npm view @deepseek-ai/dsh-host-apiproxy dist-tags
+{ latest: '0.0.1-rc.1', next: '0.1.0-rc.6' }      # ← 差了一整条线
+
+$ npm view @deepseek-ai/dsh-llm-mock-server dist-tags
+{ latest: '0.0.1-rc.1', next: '0.1.0-rc.6' }
+```
+
+所以：
+
+- **依赖一律钉精确版本**（`"0.1.0-rc.6"`），不要写 `^0.1.0-rc.6`，更不要靠 `latest`。
+  预发布版本的 semver range 语义本来就绕，加上 dist-tag 错位，写范围几乎必然装错。
+- 精确版本装得到，已验证：`npm view @deepseek-ai/dsh-host-apiproxy@0.1.0-rc.6 version` → `0.1.0-rc.6`。
+- 库包**没有**随 `@deepseek-ai/dsh` 一起装到顶层的保证——`dsh` 的 `devDependencies`
+  （含 `dsh-llm-mock-server`、`dsh-agent`、`dsh-session` 等）在装published 包时**不会**被装。
+  要用就自己声明依赖。
+
+## 十、已知会咬人的地方
 
 - **`workspace-write` 沙箱不约束「读」。** macOS 用 Seatbelt，profile 只写了 `(deny file-write*)`。
   实测 agent 在 workspace-write 下用 bash 把父目录整棵树 grep 了一遍，读到了隔壁目录里
