@@ -43,21 +43,59 @@ Three things fall out of building it this way:
 
 ## Status
 
-| | |
-|---|---|
-| dsh host contract | ✅ verified live against `0.1.0-rc.6` — see [`docs/dsh-contract.md`](docs/dsh-contract.md) |
-| architecture | ✅ [`docs/architecture.md`](docs/architecture.md) |
-| `@dshr/protocol` | 🚧 |
-| `@dshr/state` | 🚧 |
-| `@dshr/tui` | 🚧 |
-| `@dshr/shell` | 🚧 |
-| `@dshr/orchestrate` | 🚧 |
+| | | |
+|---|---|---|
+| dsh host contract | ✅ | verified live against `0.1.0-rc.6` — [`docs/dsh-contract.md`](docs/dsh-contract.md) |
+| `@dshr/protocol` | ✅ | wire carrier; 14 tests, 3 of them against a live host |
+| `@dshr/tui` | ✅ | conversation, composer, tool rows, approvals; 32 tests asserting rendered ANSI |
+| `@dshr/shell` | ✅ | tabs, panes, sidebar, keys; 40 tests, layout logic is pure and ink-free |
+| `@dshr/state` | 🚧 | |
+| `@dshr/bundle` | 🚧 | the dsh profile bundle |
+| `@dshr/orchestrate` | 🚧 | orchestration verbs |
+| `dshr` (cli) | 🚧 | assembly — [`docs/integration.md`](docs/integration.md) |
+
+Proven end to end so far — a client connects to a real dsh host, creates a session,
+prompts it, and receives the answer streamed chunk by chunk:
+
+```console
+$ node tools/e2e.mjs http://127.0.0.1:39081
+· connection: ready
+session: session-923994ca-9a17-4567-b0b9-7c8f6b42619f
+· session-status running=true
+mock says: the reconnect backoff is in place.
+· session-status running=false
+
+streamed text : "mock says: the reconnect backoff is in place."
+chunk kinds   : block-start, block-end, usage, finish
+turn finished : true      history events: 29
+```
+
+That run used **no credentials at all** — see [Development](#development).
 
 ## Requirements
 
 - Node ≥ 22 (`fetch` and `WebSocket` are built in)
 - dsh `0.1.0-rc.6`
 - pnpm
+
+> ⚠️ Pin dsh's library packages **exactly**. Their `latest` dist-tag still points at
+> `0.0.1-rc.1`; the `0.1.x` line lives under `next`. A `^0.1.0-rc.6` range will surprise you.
+
+## Development
+
+You do not need an API key. `@deepseek-ai/dsh-llm-mock-server` is a scriptable
+OpenAI-compatible endpoint — point a dsh provider at it and the whole stack runs for real
+with only the model faked:
+
+```sh
+node tools/mock-llm.mjs --port 8100 --text "hello from the mock"
+MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome npx @deepseek-ai/dsh@0.1.0-rc.6 web --port 39081
+node tools/e2e.mjs http://127.0.0.1:39081
+```
+
+The `settings.yaml` this needs, and the one trap in it, are in
+[`docs/profile.md`](docs/profile.md). Other tools: `tools/preview.mjs` renders one TUI
+frame so you can look at it, `tools/probe-events.mjs` dumps the real session-event shapes.
 
 ## Security
 
