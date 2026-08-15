@@ -1,0 +1,15 @@
+node_modules/
+lib/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# 凭证一律不进仓库。值放 secrets/（权威副本在密码管理器），
+# 仓库里只留 secrets/env.example。
+secrets/*
+!secrets/env.example
+
+# 本地临时
+.dshr-dev/
+*.log
+.claude/worktrees/
