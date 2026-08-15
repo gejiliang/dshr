@@ -25,6 +25,8 @@ export type ShellAction =
   | { readonly type: 'focusPane'; readonly direction: 'left' | 'right' | 'up' | 'down' }
   | { readonly type: 'closePane' }
   | { readonly type: 'toggleSidebar' }
+  | { readonly type: 'selectWorkspace' }
+  | { readonly type: 'newWorkspace' }
 
 export type DispatchResult =
   | { readonly kind: 'action'; readonly action: ShellAction }
@@ -50,6 +52,8 @@ export const DEFAULT_KEY_TABLE: KeyTable = {
     '"': { type: 'splitHorizontal' },
     x: { type: 'closePane' },
     s: { type: 'toggleSidebar' },
+    w: { type: 'selectWorkspace' },
+    W: { type: 'newWorkspace' },
   },
 }
 
