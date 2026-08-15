@@ -1,0 +1,93 @@
+# The @dshr/bundle patch: the terminal surface over the dsh-base layer.
+# Applied after dsh-base's insert; rows here override base rows by id, with
+# the profile's own cordis.patch.yml and any --patch overlays still to come.
+#
+# A patch replaces the targeted row's whole `config`, so each row below
+# restates every key it owns.
+#
+# Unlike dsh-web-app, this surface KEEPS the base agent plane mounted. The
+# upstream web patch says why the base carries it at all: "The base keeps them
+# for the TUI, which is single-session and composes its agent process-wide;
+# the Web surface disables them here and lets each session mount a preset
+# instead." So the web patch's `disabled: true` block is deliberately NOT
+# mirrored here; only the browser half of the web roster (modules / connection
+# / client-* / ui-* / client-hmr / web-runtime) is cut. The host rows below
+# are the same ones the Web surface mounts.
+
+# The deployment persona: the same coding-agent persona both shipped surfaces
+# (web, headless) state over the base row's empty default.
+- id: system-prompt
+  config:
+    persona: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+
+# The shared module-reload HMR row stays off, as on both shipped surfaces;
+# the launcher's watch-only fallback still keeps the user patch layers live.
+- id: hmr
+  disabled: true
+
+# Same temporary process-wide Code Mode opt-in as the shipped surfaces:
+# DSH_TOOLS_MODE (native|code|both) opts the whole process into Code Mode;
+# unset keeps the schema default (native).
+- id: tools
+  config:
+    mode: !!js process.env.DSH_TOOLS_MODE
+
+# ── host rows: the same server plane the Web surface mounts ─────────────────
+
+- insert:
+    - id: code-runtime
+      name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+
+    - id: storage
+      name: '@deepseek-ai/dsh-storage'
+
+    - id: storage-json
+      name: '@deepseek-ai/dsh-storage-json'
+      config:
+        root: !!js dshHomePath('storages')
+
+    - id: storage-domain
+      name: '@deepseek-ai/dsh-storage-domain'
+      config:
+        backend: json
+
+    - id: workspace
+      name: '@deepseek-ai/dsh-workspace'
+
+    - id: session-projection-cache
+      name: '@deepseek-ai/dsh-session-projection-cache'
+      config:
+        writeEveryEvents: 200
+        writeIntervalMs: 5000
+
+    - id: session-stats
+      name: '@deepseek-ai/dsh-session-stats'
+
+    # The API gateway: the transport-agnostic dispatch face every client shape
+    # shares. The base layer's agent-default-model service owns the default model.
+    - id: api-gateway
+      name: '@deepseek-ai/dsh-host-apiproxy'
+
+    - id: cordis-host-runner
+      name: '@deepseek-ai/dsh-cordis-host-runner'
+
+    # Ordinary provider for the parsed dshr flags. Its plugin-level injection
+    # waits for cmdlineArgs; no launcher metadata or special row kind is needed.
+    # `--help` (and rejected invocations) provide nothing, so the row below
+    # stays pending and no runtime is published.
+    - id: dshr-startup
+      name: '@dshr/bundle/startup'
+
+    # The app plugin: provides dshrRuntime from these flag-resolved values and
+    # owns the surface seam (startSurface). No webserver row here on purpose:
+    # the default shape is one process with no port and no trust-fence
+    # question; a future `server` mode inserts the webserver row as an overlay.
+    - id: dshr-app
+      name: '@dshr/bundle'
+      inject: [dshrStartup]
+      config:
+        host: !!js ctx.dshrStartup.host ?? '127.0.0.1'
+        port: !!js ctx.dshrStartup.port ?? 39080
+        connect: !!js ctx.dshrStartup.connect
+        resume: !!js ctx.dshrStartup.resume
