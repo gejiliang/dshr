@@ -5,6 +5,7 @@
  * 判据全部来自 host 的权威事件（见 docs/dsh-contract.md 第四、五节），
  * 不解析任何终端画面。
  */
+import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import type { DshrClient, MuxFrame, ResponseValue } from '@dshr/protocol'
 import type {
   AgentStatus,
@@ -29,18 +30,25 @@ type ToolItem = Extract<ConversationItem, { kind: 'tool' }>
 type AssistantChunk = Extract<SessionEvent, { type: 'assistant/chunk' }>
 type ContentBlock = Extract<SessionEvent, { type: 'assistant/message' }>['data']['message']['content'][number]
 
+type TextLikeBlock = Extract<ContentBlock, { type: 'text' | 'reasoning' }>
+
 /**
  * 一趟顺序折叠。维护两类未决状态：
- * - `openBlocks`：流式块（`text-delta` / `reasoning-delta` 按 chunk.index 归并，`block-end` 收尾）
+ * - 流式块：`assistant/chunk` 的 `data.chunk` 是原始 StreamChunk，拼装**不重写**——
+ *   交给上游的 `BlockAssembler`（dsh-llm 导出的唯一共享实现），本类只做
+ *   「块位置 → 视图项」的增量映射与 `streaming` 位维护
  * - `openCalls`：`tool/call` 与 `tool/result` 按 `callId` 配成一项
  *
  * 历史页与实时帧走同一个 fold——两者都是同一台 host 产生的同一事件流。
  */
 class Fold {
-  private openBlocks = new Map<number, StreamItem>()
   private openCalls = new Map<string, ToolItem>()
-  /** 当前 step 里由 chunk 立起来的流式项；`assistant/message` 到达时收尾而不是重复建项。 */
-  private streamedThisStep: StreamItem[] = []
+  /** 当前 step 的流式拼装状态；step/turn 边界重置。 */
+  private assembler: BlockAssembler | null = null
+  /** chunk.index 的首次出现顺序，与 BlockAssembler.blocks() 的位置一一对应。 */
+  private indexOrder: number[] = []
+  /** 与 blocks() 位置平行的视图项；tool-call 位置为 null（由 tool/call 事件镜像）。 */
+  private streamItems: (StreamItem | null)[] = []
 
   constructor(
     private readonly items: ConversationItem[],
@@ -51,8 +59,7 @@ class Fold {
     switch (event.type) {
       case 'turn/start':
       case 'step/start':
-        this.openBlocks.clear()
-        this.streamedThisStep = []
+        this.resetStepAssembly()
         break
       case 'turn/end':
         this.closeStreams()
@@ -83,10 +90,18 @@ class Fold {
     }
   }
 
+  /** 轮次中止/结束时，未完的流式项定格（streaming 归假），拼装状态作废。 */
   private closeStreams(): void {
-    for (const item of this.openBlocks.values()) item.streaming = false
-    this.openBlocks.clear()
-    this.streamedThisStep = []
+    for (const item of this.streamItems) {
+      if (item) item.streaming = false
+    }
+    this.resetStepAssembly()
+  }
+
+  private resetStepAssembly(): void {
+    this.assembler = null
+    this.indexOrder = []
+    this.streamItems = []
   }
 
   private onUserMessage(event: Extract<SessionEvent, { type: 'user/message' }>): void {
@@ -109,72 +124,56 @@ class Fold {
 
   private onChunk(event: AssistantChunk): void {
     const { turn, step, chunk } = event.data
-    switch (chunk.type) {
-      case 'text-delta':
-        this.applyDelta(turn, step, chunk.index, 'assistant', chunk.text)
-        break
-      case 'reasoning-delta':
-        this.applyDelta(turn, step, chunk.index, 'reasoning', chunk.text)
-        break
-      case 'block-end':
-        this.applyBlockEnd(event.seq, chunk.index, chunk.block)
-        break
-      case 'block-start':
-      case 'tool-call-delta':
-      case 'usage':
-      case 'finish':
-        // tool-call-delta 不拼：`tool/call` 事件携带权威的整体调用。
-        break
-    }
-  }
-
-  private applyDelta(turn: number, step: number, index: number, kind: StreamItem['kind'], text: string): void {
-    let item = this.openBlocks.get(index)
-    if (item) {
-      if (item.kind !== kind) return // 同一 index 的块类型错位（畸形流），忽略
-    } else {
-      const id = `s-${turn}-${step}-${index}`
-      item = kind === 'assistant'
-        ? { kind, id, text: '', streaming: true }
-        : { kind, id, text: '', streaming: true }
-      this.openBlocks.set(index, item)
-      this.items.push(item)
-      this.streamedThisStep.push(item)
-    }
-    item.text += text
-    this.onChange()
-  }
-
-  private applyBlockEnd(seq: number, index: number, block: ContentBlock): void {
-    const open = this.openBlocks.get(index)
-    this.openBlocks.delete(index)
-    if (block.type === 'text' || block.type === 'reasoning') {
+    // usage / finish 是账本与终止信号，不产生视图项（turn/end 负责终态）。
+    if (chunk.type === 'usage' || chunk.type === 'finish') return
+    const assembler = this.assembler ?? (this.assembler = new BlockAssembler())
+    assembler.push(chunk)
+    if (!this.indexOrder.includes(chunk.index)) this.indexOrder.push(chunk.index)
+    const closedPos = chunk.type === 'block-end' ? this.indexOrder.indexOf(chunk.index) : -1
+    const blocks = assembler.blocks()
+    let changed = false
+    for (let pos = 0; pos < blocks.length; pos++) {
+      const block = blocks[pos]
+      if (!block || (block.type !== 'text' && block.type !== 'reasoning')) continue
       const kind: StreamItem['kind'] = block.type === 'text' ? 'assistant' : 'reasoning'
-      if (open && open.kind === kind) {
-        // block-end 携带组装好的整块，是权威终态。
-        open.text = block.text
-        open.streaming = false
-      } else if (!open) {
-        // delta-only 协议的兜底：没见过 delta 就直接用组装块建项。
-        const id = `b-${seq}`
-        const item: StreamItem = kind === 'assistant'
-          ? { kind, id, text: block.text, streaming: false }
-          : { kind, id, text: block.text, streaming: false }
+      let item = this.streamItems[pos]
+      if (!item) {
+        const id = `s-${turn}-${step}-${pos}`
+        item = kind === 'assistant'
+          ? { kind, id, text: block.text, streaming: true }
+          : { kind, id, text: block.text, streaming: true }
+        this.streamItems[pos] = item
         this.items.push(item)
-      } else {
-        open.streaming = false
+        changed = true
+      } else if (item.text !== block.text) {
+        item.text = block.text
+        changed = true
       }
-    } else if (open) {
-      open.streaming = false
+      if (pos === closedPos && item.streaming) {
+        item.streaming = false
+        changed = true
+      }
     }
-    this.onChange()
+    if (changed) this.onChange()
   }
 
   private onAssistantMessage(event: Extract<SessionEvent, { type: 'assistant/message' }>): void {
-    const hadStreamed = this.streamedThisStep.length > 0
-    // 组装消息是这一步的终态：chunk 立起来的项收尾，不重复建项。
-    this.closeStreams()
-    if (!hadStreamed) {
+    // 组装消息是这一步的终态：chunk 流立起来的项以它为权威收尾，不重复建项。
+    const streamed = this.streamItems.filter((item): item is StreamItem => item !== null)
+    if (streamed.length > 0) {
+      const finals = event.data.message.content.filter(
+        (block): block is TextLikeBlock => block.type === 'text' || block.type === 'reasoning',
+      )
+      for (let i = 0; i < streamed.length; i++) {
+        const item = streamed[i]
+        const final = finals[i]
+        if (!item) continue
+        item.streaming = false
+        if (final && item.kind === (final.type === 'text' ? 'assistant' : 'reasoning') && item.text !== final.text) {
+          item.text = final.text
+        }
+      }
+    } else {
       let i = 0
       for (const block of event.data.message.content) {
         if (block.type === 'text') {
@@ -185,6 +184,7 @@ class Fold {
         // tool-call 块由独立的 tool/call 事件镜像，这里跳过。
       }
     }
+    this.resetStepAssembly()
     this.onChange()
   }
 
@@ -232,8 +232,6 @@ class Fold {
 }
 
 export interface ConversationDeps {
-  getStatus(): AgentStatus
-  getPending(): PendingInteraction | undefined
   /** history 尾页（只有尾页）携带的投影基线块，交给 state 按 higher-seq-wins 播种。 */
   onProjections(block: ProjectionsBlock): void
 }
@@ -253,6 +251,14 @@ export class Conversation implements ConversationView {
   private loadingOlder = false
   private resetEpoch = 0
   private hostErrorCount = 0
+
+  /**
+   * `status` / `pending` 由 state 在每次变化时同步进来（`syncStatus`）。
+   * 它们是数据属性而不是 getter：exactOptionalPropertyTypes 下，
+   * 返回 `T | undefined` 的 getter 实现不了可选属性 `pending?: T`。
+   */
+  status: AgentStatus = 'idle'
+  pending?: PendingInteraction
 
   constructor(
     private readonly client: DshrClient,

@@ -104,17 +104,24 @@ class DshrStateImpl implements DshrState {
     if (!conv) {
       const record = this.ensureRecord(sessionId)
       conv = new Conversation(this.client, sessionId, {
-        getStatus: () => this.statusOf(record),
-        getPending: () => this.pendingOf(record),
         onProjections: (block) => {
           this.seedProjections(record, block)
           this.refreshSummary(record)
         },
       })
+      conv.syncStatus(this.statusOf(record), this.pendingOf(record))
       this.conversations.set(sessionId, conv)
       this.refreshSummary(record)
     }
     return conv
+  }
+
+  projections(sessionId: SessionId): ReadonlyMap<string, unknown> {
+    const record = this.records.get(sessionId)
+    const out = new Map<string, unknown>()
+    if (!record) return out
+    for (const [key, cell] of record.projections) out.set(key, cell.value)
+    return out
   }
 
   async createWorkspace(path: string, title?: string): Promise<WorkspaceId> {
@@ -240,7 +247,7 @@ class DshrStateImpl implements DshrState {
     const record = this.ensureRecord(item.sessionId)
     record.blank = item.blank
     record.running = item.running
-    record.error = undefined
+    delete record.error // list 基线是权威的，取代断线前粘住的 error
     if (item.cwd !== undefined) record.cwd = item.cwd
     if (item.parentSessionId !== undefined) record.parentSessionId = item.parentSessionId
     if (item.origin !== undefined) record.origin = item.origin
@@ -292,7 +299,7 @@ class DshrStateImpl implements DshrState {
       case 'host/session-status': {
         const record = this.ensureRecord(frame.sessionId)
         record.running = frame.running
-        record.error = undefined // 新的权威运行状态取代旧的 error
+        delete record.error // 新的权威运行状态取代旧的 error
         if (frame.running) record.blank = false // blank 的会话从没跑过；跑过就不再 blank
         this.refreshSummary(record)
         break
@@ -451,7 +458,7 @@ class DshrStateImpl implements DshrState {
     }
     this.summaries.set(record.sessionId, summary)
     this.notify()
-    this.conversations.get(record.sessionId)?.notifyExternal()
+    this.conversations.get(record.sessionId)?.syncStatus(summary.status, pending)
   }
 
   private upsertWorkspace(workspace: {
