@@ -1,0 +1,15 @@
+{
+  "name": "dsh-profile-dshr",
+  "private": true,
+  "dependencies": {
+    "@dshr/bundle": "0.0.0"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@dshr/bundle"
+      ]
+    }
+  }
+}
