@@ -26,12 +26,18 @@ export const inject: string[] = []
 /** Runtime service holding the resolved invocation values. */
 export const DSHR_RUNTIME_SERVICE = 'dshrRuntime'
 
-/** The validated row config (every key optional; flags win via `??` in the patch). */
+/**
+ * The validated row config. Schemastery fields are optional unless marked
+ * `.required()` (there is no `.optional()`); the explicit `.required(false)`
+ * below states the same contract as {@link DshrAppConfig} — every key may be
+ * absent, because the patch's `!!js ctx.dshrStartup.*` expressions evaluate
+ * to `undefined` when the corresponding flag was not passed.
+ */
 export const Config = z.object({
-  host: z.string(),
-  port: z.natural(),
-  connect: z.string(),
-  resume: z.string(),
+  host: z.string().required(false),
+  port: z.natural().required(false),
+  connect: z.string().required(false),
+  resume: z.string().required(false),
 })
 
 /** Shape of the validated {@link Config}; mirrors the patch row's keys. */
