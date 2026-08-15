@@ -103,7 +103,7 @@ test('端到端：Shell 连真 host，提交一句话，流式回答出现在渲
 
   const components = buildShellComponents({ state: spied, client })
   const app = render(
-    h(Shell, { state: spied, components, workspaceId: String(workspaceId), cwd }),
+    h(Shell, { state: spied, components, initialWorkspaceId: String(workspaceId), cwd }),
   )
 
   t.after(async () => {

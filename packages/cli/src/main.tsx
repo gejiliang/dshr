@@ -74,7 +74,7 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
   const components = buildShellComponents({ state: effectiveState, client })
 
   // exitOnCtrlC: false —— Ctrl-C 由我们自己的 SIGINT 处理走统一的 shutdown 路径。
-  const app = render(h(Shell, { state: effectiveState, components, workspaceId }), {
+  const app = render(h(Shell, { state: effectiveState, components, initialWorkspaceId: workspaceId }), {
     exitOnCtrlC: false,
   })
 

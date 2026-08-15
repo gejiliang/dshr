@@ -43,7 +43,7 @@ Three things fall out of building it this way:
 
 ## Status
 
-**139 tests, all green. The whole stack runs against a real dsh host.**
+**154 tests, all green. The whole stack runs against a real dsh host.**
 
 | | | |
 |---|---|---|
@@ -51,11 +51,24 @@ Three things fall out of building it this way:
 | `@dshr/protocol` | ✅ | the `/api` wire carrier — 14 tests, 3 against a live host |
 | `@dshr/state` | ✅ | frames folded into a renderable model — 13 tests |
 | `@dshr/tui` | ✅ | conversation, composer, tool rows, approvals — 32 tests asserting rendered ANSI |
-| `@dshr/shell` | ✅ | tabs, panes, sidebar, keys — 42 tests, layout logic pure and ink-free |
+| `@dshr/shell` | ✅ | tabs, panes, sidebar, keys, workspace switching — 57 tests, layout logic pure and ink-free |
 | `@dshr/orchestrate` | ✅ | orchestration verbs — 13 tests. **A library; nothing calls it yet** (see below) |
 | `@dshr/bundle` | ✅ | the dsh profile bundle — 12 tests, `--dump-config` composes clean |
 | `dshr` (cli) | ✅ | assembly + end-to-end — 13 tests. `dshr server` brings up its own host |
-| workspace management | 🚧 | the sidebar lists workspaces; creating and switching is not wired yet |
+
+## Keys
+
+`Ctrl-B` is the prefix, tmux-style.
+
+| | |
+|---|---|
+| `c` / `n` / `p` | new tab / next / previous |
+| `%` / `"` | split the pane vertically / horizontally |
+| arrows / `x` | move focus / close the pane (**detach only — the session stays on the host**) |
+| `s` | toggle the sidebar |
+| `w` / `W` | switch workspace / create one |
+
+Every new tab and every new pane opens a fresh dsh session in the active workspace.
 
 ### What is deliberately not done yet
 
@@ -63,8 +76,6 @@ Three things fall out of building it this way:
   tests the verbs — spawn, send, wait, cancel, list, with a configurable hard cap — but
   nothing in the CLI or the bundle calls them. Exposing them as tools a model can invoke
   needs dsh's tool-plugin API, which this pass deliberately stayed out of.
-- **Workspace management.** The sidebar shows workspaces; there is no key to create or
-  switch one.
 - **Remote attach.** The host binds loopback only, on purpose — see [Security](#security).
 
 The end-to-end test renders the **whole Shell** against a live host, submits a prompt, and

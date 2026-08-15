@@ -53,7 +53,7 @@ const spied = {
 }
 
 const components = buildShellComponents({ state: spied, client })
-const app = render(h(Shell, { state: spied, components, workspaceId: String(workspaceId), cwd }))
+const app = render(h(Shell, { state: spied, components, initialWorkspaceId: String(workspaceId), cwd }))
 
 const until = async (predicate, timeoutMs = 30_000) => {
   const deadline = Date.now() + timeoutMs
