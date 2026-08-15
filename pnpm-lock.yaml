@@ -11,6 +11,9 @@ importers:
       '@deepseek-ai/dsh-llm-mock-server':
         specifier: 0.1.0-rc.6
         version: 0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1))
+      '@dshr/protocol':
+        specifier: workspace:*
+        version: link:packages/protocol
       '@dshr/tui':
         specifier: workspace:*
         version: link:packages/tui

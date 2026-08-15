@@ -228,6 +228,73 @@ herdr 侧栏那三个状态，在 dsh 这边是白送的，不需要像 herdr-op
   和 `imageLimits`（每次启动的常量，client 用它在提交前就拒掉超限图片）。
 - 会话标题走的就是这套泛型投影，不是单独的帧。
 
+## 五之二、会话事件的**实际**形状（实测 2026-08-15）
+
+类型联合在 `@deepseek-ai/dsh-session/types` 里，但真正会出现哪些、字段怎么套，
+读类型不如打一遍。下面是一次最简单对话（一句提问、一句回答，无工具）的真实直方图：
+
+```
+  3  user/message          2  agent/inbox/spliced     2  assistant/chunk
+  1  permission/preset     1  sandbox/mode            1  approval/policy
+  1  turn/start            1  step/start              1  step/end        1  turn/end
+  1  request/header        1  request/context
+  1  session/title         1  session/title-llm-request
+```
+
+（`session/title-llm-request` 就是第五节说的那次额外 LLM 调用。）
+
+### 三个容易搞错的地方
+
+**① `session.history` 的条目包了一层，mux 帧没有。**
+
+```ts
+history.value.events[i]   // HistoryEntry = { event: SessionEvent }  → 类型在 entry.event.type
+muxFrame.event            // SessionEvent 本身                        → 类型在 frame.event.type
+```
+
+**② 助手文本不是 `text-delta` 事件，是 `assistant/chunk`，原始 chunk 在 `data.chunk` 里。**
+
+```json
+{ "type": "assistant/chunk", "seq": 14, "time": 1786810207580,
+  "data": { "turn": 1, "step": 1,
+            "chunk": { "type": "usage", "usage": { "inputTokens": 0, "outputTokens": 0 } } } }
+```
+
+`data.chunk` 是 `dsh-llm` 的原始 StreamChunk 联合：
+`block-start` / `text-delta` / `reasoning-delta` / `tool-call-delta` / `block-end` / `usage` / `finish`。
+
+→ **不要自己写拼装。** `@deepseek-ai/dsh-llm` 导出 `BlockAssembler`，README 原文说它是
+"the single shared implementation that assembles chunks into blocks/messages"。
+那个包只有一个依赖（`@deepseek-ai/schemastery`），Node 里直接可用。
+
+**③ projections 块整块只有一个 `asOfSeq`。**
+
+```json
+{ "asOfSeq": 17,
+  "values": {
+    "title": "Reply with exactly one short",
+    "sessionStats":      { "turns":1, "steps":1, "llmMs":0, "toolMs":0, "ttftMs":0, ... },
+    "tokenUsage":        { "uncachedInputTokens":0, "outputTokens":0, "cacheReadTokens":0, "cacheWriteTokens":0 },
+    "contextPressure":   { "pressureTokens":0, "projectedTokens":0, "contextWindow":131072 },
+    "contextBreakdown":  { "systemTokens":1011, "toolsTokens":6556, "messageTokens":406 },
+    "goal": null, "subagent": null, "subagentTiming": {...}, "permissions": {...}
+  } }
+```
+
+播种时给每个 key 打上这一个 `asOfSeq` 当初始水位，之后 `session/projection{key,value,seq}`
+逐 key 按 higher-seq-wins 更新。`contextPressure` 与 `contextBreakdown` 就是状态行
+上下文用量的数据源——**别只挑 `title` 出来，整张表按泛型暴露**。
+
+### 自己打一遍
+
+仓库里两个工具，需要一台 host（`docs/profile.md` 有零凭据起法）：
+
+```sh
+node tools/e2e.mjs http://127.0.0.1:39081                  # 建会话 + 发提示 + 看流
+node tools/probe-events.mjs                                # 直方图 + 真实形状 + projections
+PROBE_MARKER=assistant/chunk node tools/probe-events.mjs   # 只看某类事件
+```
+
 ## 六、模型选择
 
 `host.describe` 返回的 `provider`/`model` 是**部署默认**，由 `dsh-agent-default-model` 服务在
