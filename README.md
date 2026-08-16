@@ -56,6 +56,51 @@ Three things fall out of building it this way:
 | `@dshr/bundle` | ✅ | the dsh profile bundle — 12 tests, `--dump-config` composes clean |
 | `dshr` (cli) | ✅ | assembly + end-to-end — 13 tests. `dshr server` brings up its own host |
 
+## Verifying it yourself
+
+Don't take the badge count on faith — a green suite proved nothing here once already,
+because the end-to-end check was satisfied by a sidebar label rather than by the thing it
+claimed to test. Run this instead:
+
+```sh
+pnpm install && npx tsc --build
+node tools/verify.mjs
+```
+
+It starts its own fake model and its own dsh host on ephemeral ports in a temp `DSH_HOME`,
+checks four claims, prints the rendered frame for you to look at, and tears everything
+down. No credentials, no prerequisites, nothing left running.
+
+**Then prove the checks can actually fail.** Reintroduce the worst bug and watch exactly
+one claim go red:
+
+```sh
+git stash                                   # or: git checkout HEAD~1 -- packages/state/src/conversation.ts
+npx tsc --build && node tools/verify.mjs
+```
+
+```
+  PASS  A  the wire carrier reaches a real host and receives the streamed answer
+  FAIL  B  the answer appears in the rendered frame
+  PASS  D  the session returns to idle
+```
+
+A passing while B fails is the signature of that bug: the model held the answer, the screen
+never showed it. That is what a check being *falsifiable* looks like — and why B is worth
+having.
+
+The one thing the automated checks cannot cover is the interactive terminal, since they
+render off-screen. For that, run the real thing and type into it:
+
+```sh
+node tools/mock-llm.mjs --port 8100 --text "hello" &
+MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome npx @deepseek-ai/dsh@0.1.0-rc.6 web --port 39081 &
+node packages/cli/lib/main.js --connect http://127.0.0.1:39081
+```
+
+`Ctrl-B` then `%` should split the pane and open a second session; `Ctrl-B w` should list
+workspaces. `Ctrl-C` exits.
+
 ## Keys
 
 `Ctrl-B` is the prefix, tmux-style.
