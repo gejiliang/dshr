@@ -65,49 +65,69 @@ DSH_HOME=~/.dsh npx @deepseek-ai/dsh@0.1.0-rc.6 --profile headless "回一句话
 
 这一句能出结果，dshr 就一定能用——它跟 TUI 走的是同一个 host 平面。
 
-## 三、跑起来
+## 三、让 herdr 的每个 pane 都是一个会话
 
-```sh
-dshr                       # 连本机 host；没有就自己拉一个，然后开 TUI
-dshr --port 39080          # 指定端口（默认 39080）
-dshr --connect <url>       # 只开 TUI，attach 到已经在跑的 host
-dshr --resume <sessionId>  # 直接打开某个已存在的会话
-dshr server                # 只起 host、不开 TUI（当成常驻服务）
+这是它设计出来要用的方式——**你基本不用手敲 `dshr`**：
+
+```toml
+# ~/.config/herdr/config.toml
+[terminal]
+default_shell = "dshr"
 ```
 
-**推荐的日常形态**是后两条配合：
+改完 `herdr server reload-config`（或重开会话）。之后：
+
+- 在 herdr 里开一个 pane = 开一个 dsh 会话
+- 分屏 / 新 tab / 新工作区 —— **全是 herdr 自己的键**，dshr 不参与
+- 侧栏会把每个 pane 显示成一个 `dsh` agent，带实时 `idle` / `working` / `blocked`
+- 关掉 pane 只是 detach：会话在 host 上**强制落盘**，`dshr --resume <id>` 随时接回来
+
+> dshr 只做一个 pane 内部的那个会话。工作区、tab、pane、侧栏都是 herdr 的活——
+> 早期版本在 herdr 旁边复刻了一整套，是方向性错误，已删（`git log -- packages/shell`）。
+
+### 手敲的用法（不在 herdr 里，或者要指定会话时）
 
 ```sh
-dshr server &     # 常驻，关掉终端 agent 也还在跑
-dshr              # 随时 attach 回去
+dshr                       # 在当前目录开一个新会话
+dshr --resume <sessionId>  # 打开某个已存在的会话
+dshr --connect <url>       # attach 到别人起好的 host
+dshr --port 39080          # 指定 host 端口（默认 39080）
+dshr server                # 只起 host、不开 TUI
 ```
 
-会话在 host 上是**强制落盘**的，所以关掉 TUI 不会丢东西，`dshr` 再进去还在。
+不在 herdr 里跑时，状态上报自动关闭（判据是有没有 `HERDR_PANE_ID`），其余一模一样。
 
 ## 四、界面怎么用
 
-`Ctrl-B` 是前缀键（tmux 风格）：
+界面照搬 opencode（判据见 [`opencode-reference.md`](opencode-reference.md) 的实测截屏）：
 
-| 键 | 作用 |
-|---|---|
-| `c` / `n` / `p` | 新 tab / 下一个 / 上一个 |
-| `%` / `"` | 竖分 / 横分当前 pane |
-| 方向键 | 在 pane 之间移动焦点 |
-| `x` | 关掉当前 pane（**只是 detach，会话留在 host 上**） |
-| `s` | 开关侧栏 |
-| `w` / `W` | 切换工作区 / 新建工作区 |
+```
+  ┃  你问的话                        会话标题
+  ┃                                 ~/当前目录
+     + Thought: 256ms               ← reasoning 折成一行
+     助手的回答（没有竖线，只缩进）    Context
+     → Read .                       12.3k tokens
+     ▣ Standard · <model> · 2.1s    9% used
+  ┃
+  ┃ Ask anything...
+  ┃  Standard · <model> <provider>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                    enter send  shift+enter newline
+~/当前目录                        • connected  <model>
+```
 
-**一个 pane = 一个 dsh 会话。** 新建 tab 或 pane 都会在当前工作区下开一个新会话。
-侧栏里每个会话带状态点：`○` idle、`●` working、`◆` blocked（反显，最扎眼）、`✖` error。
-**`◆` 是唯一需要你介入的**——那个会话卡在审批或提问上，点进去答一下才会继续。
-
-直接打字就是跟当前 pane 的会话说话，回车发送。`Ctrl-C` 退出 dshr（不会杀掉 host 上的会话）。
+- 直接打字，回车发送，`shift+enter` / `ctrl+j` 换行
+- **卡住时输入框会让位给审批/提问面板**——那是唯一需要你介入的状态，
+  herdr 侧栏那边同时会把这个 pane 标成 `blocked`
+- pane 窄于 100 列时右侧信息列自动收起（herdr 的 pane 常常就这么窄）
+- `Ctrl-C` 退出 dshr。**不会杀掉 host 上的会话**，也会把 agent 身份交还给 herdr
 
 ## 五、不灵的时候
 
 | 现象 | 多半是 |
 |---|---|
-| `Cannot find package …` | 忘了 `pnpm install && npx tsc --build` |
+| `Cannot find package …` | 忘了 `pnpm install && npx tsc --build`。**改完源码或拉了新代码一定要重建**——`dshr` 命令跑的是构建产物，不是源码。踩过：删包之后忘了在主目录重建，命令直接起不来 |
+| 侧栏里看不到这个 pane 是 agent | 只在 herdr 里跑才上报（判据是 `HERDR_PANE_ID`）。手敲 `dshr` 在普通终端里是正常没有的 |
 | 界面起来但一提问就报错 | `~/.dsh/settings.yaml` 没配，或 `QP_API_KEY` 没 export |
 | 整个界面塌成一列 | 终端没报尺寸；已有 80×24 兜底，还塌就把终端信息发我 |
 | 起不来、卡在等 host | 看 `/tmp/dshr-host-<port>.log`，那是它拉起的 host 的输出 |
@@ -116,6 +136,6 @@ dshr              # 随时 attach 回去
 ## 六、还不能用的东西
 
 - **编排动词还没接进产品**。`@dshr/orchestrate` 的 spawn/send/wait/cancel/list 写好也测好了，
-  但没有任何界面或工具能调到它——要让模型自己调，得接 dsh 的工具插件 API，那还没做。
+  但没有任何入口能调到它。现在 dshr 跑在 herdr 里，编排本来就是 herdgent 的活——
+  **这个包很可能该直接删掉**。
 - **远程 attach 没做**。host 只绑 loopback，跨机器要 dshr 自带认证层，现在没有。
-- `Ctrl-B` 那套键位我只在离屏测试里验过；真键盘下只验过普通输入与 `Ctrl-C`。

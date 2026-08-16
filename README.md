@@ -1,247 +1,170 @@
 # dshr
 
-**A terminal workspace for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) —
-a TUI, a persistent server, and multi-agent orchestration, as a dsh plugin.**
+**A terminal session UI for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness),
+built to live inside a [herdr](https://herdr.dev) pane.**
 
-> ⚠️ **Early development.** dsh itself is a developer preview (`0.1.0-rc.6`), and dshr is younger
-> than that. Interfaces will move. Nothing here is stable yet.
+> ⚠️ **Early development.** dsh itself is a developer preview (`0.1.0-rc.6`), and dshr is
+> younger than that. Interfaces will move. Nothing here is stable yet.
 
-`dsh` ships two surfaces: a one-shot `headless` mode and a `web` mode that serves a browser UI.
-There is no terminal surface — yet the upstream docs already leave the seat open for one
+`dsh` ships two surfaces: a one-shot `headless` mode and a `web` mode that serves a browser
+UI. There is no terminal surface — yet the upstream docs already leave the seat open for one
 (`dsh --profile tui --resume <id>`, "assuming the tui profile is installed"), and
 `dsh-api-remotes` says its client face "can be reused by Web or **a future TUI**".
 
-dshr is that TUI, plus the thing a browser tab cannot give you: **a workspace**.
-Tabs, panes, a sidebar of live agents, and orchestration verbs to put several of them to work.
+dshr is that TUI. One process, one pane, one session.
 
-## What it is
+## The shape
 
 ```
-┌─ dshr TUI ───────────────────────────────────────┐
-│  tabs · panes · sidebar of live agents            │   one pane = one dsh session
-│  opencode-style conversation view                 │
-├───────────────────────────────────────────────────┤
-│  POST /api/<method>  +  two downlink streams      │
-├───────────────────▼───────────────────────────────┤
-│  dsh host plane — reused as-is, not reimplemented  │
-│  workspaces · sessions · subagents · approvals ·   │
-│  questions · jobs · projections · goals · skills   │
-└───────────────────────────────────────────────────┘
+ herdr                    │  dshr
+ ─────────────────────────┼──────────────────────────────────────────
+ workspaces, tabs, panes  │  the conversation inside one pane
+ the sidebar of agents    │  reports its own state into that sidebar
+                          │
+                          │  dsh host: sessions, tools, approvals
+```
+
+Point herdr's shell at dshr and every new pane becomes a dsh session:
+
+```toml
+# ~/.config/herdr/config.toml
+[terminal]
+default_shell = "dshr"
 ```
 
 Three things fall out of building it this way:
 
-- **The server already exists.** dsh's `web` profile runs a complete host plane. dshr composes
-  the same host rows instead of rewriting them, so workspace management, session persistence,
-  approvals and subagents come for free.
-- **Agent state is authoritative, not scraped.** Terminal multiplexers infer whether an agent is
-  busy by parsing its status line — and break the day upstream changes it. dshr reads
-  `host/session-status` off the host's own event stream. `idle` / `working` / `blocked` are facts,
-  not guesses.
-- **Sessions are already durable.** dsh persists every session to disk unconditionally, so
-  detach, re-attach and `--resume` are properties of the host, not features dshr had to add.
+- **The workspace already exists.** herdr has spent its life on tabs, panes, splits and a
+  live agent sidebar. dshr renders one pane's worth of content and nothing else. An earlier
+  version reimplemented all of herdr beside herdr; it was deleted (`git log -- packages/shell`).
+- **The server already exists.** dsh's `web` profile runs a complete host plane, so workspace
+  registry, session persistence, approvals and subagents come for free.
+- **Agent state is authoritative, not scraped.** Plugins that wrap a foreign TUI have to parse
+  its status line and break when it changes. dshr learns `idle` / `working` / `blocked` from
+  the host's own event stream and reports it to herdr directly — no watcher process, nothing
+  to re-verify when upstream reflows its output.
 
 ## Status
 
-**154 tests, all green. The whole stack runs against a real dsh host.**
+**117 tests. The whole stack runs against a real dsh host, inside a real herdr pane.**
 
 | | | |
 |---|---|---|
 | dsh host contract | ✅ | verified live against `0.1.0-rc.6` — [`docs/dsh-contract.md`](docs/dsh-contract.md) |
 | `@dshr/protocol` | ✅ | the `/api` wire carrier — 14 tests, 3 against a live host |
-| `@dshr/state` | ✅ | frames folded into a renderable model — 13 tests |
-| `@dshr/tui` | ✅ | conversation, composer, tool rows, approvals — 32 tests asserting rendered ANSI |
-| `@dshr/shell` | ✅ | tabs, panes, sidebar, keys, workspace switching — 57 tests, layout logic pure and ink-free |
-| `@dshr/orchestrate` | ✅ | orchestration verbs — 13 tests. **A library; nothing calls it yet** (see below) |
+| `@dshr/state` | ✅ | frames folded into a renderable model — 16 tests |
+| `@dshr/tui` | ✅ | the session surface, in opencode's shape — [`docs/opencode-port.md`](docs/opencode-port.md) |
+| `@dshr/herdr` | ✅ | reports session state to herdr's sidebar — 6 tests |
 | `@dshr/bundle` | ✅ | the dsh profile bundle — 12 tests, `--dump-config` composes clean |
-| `dshr` (cli) | ✅ | assembly + end-to-end — 13 tests. `dshr server` brings up its own host |
+| `dshr` (cli) | ✅ | one pane, one session |
+| `@dshr/orchestrate` | ⚠️ | orchestration verbs, tested, **but nothing calls them** — see below |
 
-## Verifying it yourself
-
-Don't take the badge count on faith — a green suite proved nothing here once already,
-because the end-to-end check was satisfied by a sidebar label rather than by the thing it
-claimed to test. Run this instead:
+## Install
 
 ```sh
 pnpm install && npx tsc --build
-node tools/verify.mjs
+sh tools/install.sh
 ```
 
-It starts its own fake model and its own dsh host on ephemeral ports in a temp `DSH_HOME`,
-checks four claims, prints the rendered frame for you to look at, and tears everything
-down. No credentials, no prerequisites, nothing left running.
+`tools/install.sh` writes a thin wrapper rather than a symlink, because it also has to bring
+the credential reference into the environment — dsh resolves `apiKeyEnv` at request time, and
+needing a `source` per shell is the difference between a tool and a chore.
 
-**Then prove the checks can actually fail.** Reintroduce the worst bug and watch exactly
-one claim go red:
+Then point it at a model in `~/.dsh/settings.yaml` and supply the key through `~/.dsh/env.sh`.
+Both files, and the one trap in them, are in [`docs/using-it.md`](docs/using-it.md).
+
+## Use
 
 ```sh
-git stash                                   # or: git checkout HEAD~1 -- packages/state/src/conversation.ts
+dshr                       # a new session in the current directory
+dshr --resume <sessionId>  # reopen an existing one
+dshr --connect <url>       # attach to a host someone else started
+dshr server                # just the host, no UI
+```
+
+Usually you won't type any of these: with `default_shell = "dshr"`, opening a herdr pane is
+opening a session. Closing the pane only detaches — dsh persists every session, so
+`dshr --resume` picks it back up.
+
+## Verifying it
+
+Don't take the test count on faith — a green suite proved nothing here once already, because
+the end-to-end check was satisfied by a sidebar label rather than by the thing it claimed to
+test.
+
+```sh
+node tools/verify.mjs           # starts its own mock model and host, checks four claims
+expect -f tools/verify-tty.exp  # drives a real pty: render, type, submit, Ctrl-C
+```
+
+`verify.mjs` needs nothing running: it brings up a fake model and a dsh host on ephemeral
+ports in a temp `DSH_HOME`, prints the rendered frame, and tears everything down.
+
+**Then prove the checks can fail.** Revert the worst bug and watch exactly one line go red:
+
+```sh
+git checkout HEAD~1 -- packages/state/src/conversation.ts
 npx tsc --build && node tools/verify.mjs
 ```
 
-```
-  PASS  A  the wire carrier reaches a real host and receives the streamed answer
-  FAIL  B  the answer appears in the rendered frame
-  PASS  D  the session returns to idle
-```
+The pty check exists because everything else renders off-screen, and the two worst bugs in
+this project's history lived exactly there: `Ctrl-C` did nothing at all, and once fixed it was
+still dropped when pressed while output streamed.
 
-A passing while B fails is the signature of that bug: the model held the answer, the screen
-never showed it. That is what a check being *falsifiable* looks like — and why B is worth
-having.
+## Development
 
-### The terminal itself
-
-Everything above renders **off-screen**, so none of it touches raw mode, keystrokes, or
-quitting — and that is exactly where the two worst bugs lived: `Ctrl-C` did nothing at all,
-and once that was fixed it was still dropped when pressed while output streamed. A suite
-that never opens a pty cannot see either one.
+You do not need an API key. `@deepseek-ai/dsh-llm-mock-server` is a scriptable
+OpenAI-compatible endpoint — point a dsh provider at it and the whole stack runs for real with
+only the model faked:
 
 ```sh
-node tools/mock-llm.mjs --port 8100 --text "hello" &
-MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome npx @deepseek-ai/dsh@0.1.0-rc.6 web --port 39081 &
-
-expect -f tools/verify-tty.exp        # drives a real pty: render, type, submit, Ctrl-C
+node tools/mock-llm.mjs --port 8100 --text "hello from the mock"
+MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome npx @deepseek-ai/dsh@0.1.0-rc.6 web --port 39081
+node tools/e2e.mjs http://127.0.0.1:39081
 ```
 
-It presses `Ctrl-C` with **no settling pause**, right as the answer lands, because that is
-the window that used to swallow it. Falsifiable the same way — revert
-`packages/cli/src/main.tsx`, rebuild, and only the last line goes red.
-
-And by hand, which is still worth doing once:
-
-```sh
-node packages/cli/lib/main.js --connect http://127.0.0.1:39081
-```
-
-`Ctrl-B %` splits the pane and opens a second session, `Ctrl-B w` lists workspaces,
-`Ctrl-C` quits.
-
-## Keys
-
-`Ctrl-B` is the prefix, tmux-style.
-
-| | |
+| tool | what it does |
 |---|---|
-| `c` / `n` / `p` | new tab / next / previous |
-| `%` / `"` | split the pane vertically / horizontally |
-| arrows / `x` | move focus / close the pane (**detach only — the session stays on the host**) |
-| `s` | toggle the sidebar |
-| `w` / `W` | switch workspace / create one |
+| `tools/install.sh` | installs the `dshr` command |
+| `tools/mock-llm.mjs` | a fake model — success, tool calls, reasoning, disconnects, stalls |
+| `tools/verify.mjs` | self-contained end-to-end check |
+| `tools/verify-tty.exp` | drives a real terminal |
+| `tools/e2e.mjs` | connect, prompt, print the streamed answer |
+| `tools/preview.mjs` | render one frame from fake data |
+| `tools/probe-events.mjs` | dump the real session-event shapes off a live host |
 
-Every new tab and every new pane opens a fresh dsh session in the active workspace.
+Run the tests with `npx tsc --build && node --test packages/*/test/*.test.ts`. Tests needing a
+host skip themselves when one is not reachable.
 
-### What is deliberately not done yet
-
-- **Orchestration is not reachable from the product.** `@dshr/orchestrate` implements and
-  tests the verbs — spawn, send, wait, cancel, list, with a configurable hard cap — but
-  nothing in the CLI or the bundle calls them. Exposing them as tools a model can invoke
-  needs dsh's tool-plugin API, which this pass deliberately stayed out of.
-- **Remote attach.** The host binds loopback only, on purpose — see [Security](#security).
-
-The end-to-end test renders the **whole Shell** against a live host, submits a prompt, and
-asserts the streamed answer reaches the rendered frame — the only test that crosses all
-five packages:
-
-```
- 1
-┌──────────────┐╭───────────────────────────────────────────────╮
-│工作区         ││○ (新会话)                                      │
-│dshr          ││ 把 protocol 包的重连逻辑改成指数退避，上界 10 秒。 │
-│ ○ (新会话)   ││ mock says: the reconnect backoff is in place.  │
-│              ││╭─────────────────────────────────────────────╮│
-│              │││ Type a message…                             ││
-│              ││╰─────────────────────────────────────────────╯│
-└──────────────┘╰───────────────────────────────────────────────╯
-tabs:1                                    mock-model · idle · connected
-```
-
-That run used **no credentials at all** — see [Development](#development).
-
-It also earned its keep: it caught two defects no unit test could have, because both only
-exist between packages. `session.create` rejects `workspaceId` and `cwd` together, and
-ink's `<Static>` is document-level — so the conversation escaped its pane and rendered
-above the tab bar. Details in [`docs/integration.md`](docs/integration.md).
-
-## Using it
-
-Setup, pointing it at a real model, the keys, and the recommended daily shape
-(`dshr server` running detached, `dshr` attaching to it) are in
-[`docs/using-it.md`](docs/using-it.md).
-
-```sh
-pnpm install && npx tsc --build
-ln -sf "$PWD/packages/cli/lib/main.js" ~/bin/dshr    # or alias it
-
-dshr server &   # persistent host; sessions survive closing the TUI
-dshr            # attach
-```
-
-`dshr` on its own brings up a host if one isn't already running. It needs a provider in
-`~/.dsh/settings.yaml` before a prompt will answer — dshr is a surface over dsh, it does
-not own the model configuration.
+> The suite imports each package's **built** output, because Node's type stripping does not
+> map a `.js` specifier back to a `.ts` source. Build before testing, always.
 
 ## Requirements
 
 - Node ≥ 22 (`fetch` and `WebSocket` are built in)
-- dsh `0.1.0-rc.6`
-- pnpm
+- dsh `0.1.0-rc.6`, herdr `0.8.0+`, pnpm
 
 > ⚠️ Pin dsh's library packages **exactly**. Their `latest` dist-tag still points at
 > `0.0.1-rc.1`; the `0.1.x` line lives under `next`. A `^0.1.0-rc.6` range will surprise you.
-
-## Development
-
-**Install and build first — the tools import the built packages, not the sources:**
-
-```sh
-pnpm install
-npx tsc --build
-```
-
-You do not need an API key. `@deepseek-ai/dsh-llm-mock-server` is a scriptable
-OpenAI-compatible endpoint — point a dsh provider at it and the whole stack runs for real
-with only the model faked. Three terminals, or background the first two:
-
-```sh
-# 1) the fake model
-node tools/mock-llm.mjs --port 8100 --text "hello from the mock"
-
-# 2) a dsh host wired to it — settings.yaml is in docs/profile.md
-MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome npx @deepseek-ai/dsh@0.1.0-rc.6 web --port 39081
-
-# 3) drive it
-node tools/e2e.mjs http://127.0.0.1:39081     # prints the streamed answer
-node tools/demo-live.mjs                       # prints the assembled TUI frame
-```
-
-The `settings.yaml` this needs, and the one trap in it, are in
-[`docs/profile.md`](docs/profile.md).
-
-| tool | what it does |
-|---|---|
-| `tools/mock-llm.mjs` | a scriptable fake OpenAI endpoint — success, tool calls, disconnects, stalls |
-| `tools/e2e.mjs` | connects, creates a session, prompts, prints the streamed answer |
-| `tools/demo-live.mjs` | renders the assembled TUI against a live host and prints the frame |
-| `tools/preview.mjs` | renders one TUI frame from fake data, for looking at the design |
-| `tools/probe-events.mjs` | dumps the real session-event shapes off a live host |
-
-Run the tests with `npx tsc --build && node --test packages/*/test/*.test.ts`. Tests that
-need a host skip themselves when one is not reachable.
-
-> The suite imports each package's **built** output (`lib/`), because Node's type stripping
-> does not map a `.js` specifier back to a `.ts` source. Build before testing, always.
 
 ## Security
 
 dsh's `/api` trust fence is a **reachability policy, not authentication** — the upstream web
 carrier has no authentication layer, and `--host 0.0.0.0` is deliberately unsupported there.
 dshr therefore binds loopback only. Remote attach will require dshr to bring its own
-authentication; widening `trustedHosts` is not that, and will not be treated as that.
+authentication; widening `trustedHosts` is not that.
 
 A set of privileged methods stays pinned to loopback regardless of configuration (directory
-picking, opening host paths, the whole settings and credentials plane, and agent-preset
-authoring). A remote client's capability surface is genuinely smaller, and the UI says so
-rather than pretending otherwise.
+picking, opening host paths, the settings and credentials plane, agent-preset authoring), so a
+remote client's capability surface is genuinely smaller.
+
+## Not done yet
+
+- **Orchestration is not reachable.** `@dshr/orchestrate` implements and tests spawn / send /
+  wait / cancel / list with a configurable hard cap, but nothing calls it. Running inside herdr,
+  orchestration is arguably [herdgent](https://github.com/gejiliang/herdgent)'s job, and this
+  package may simply be deleted.
+- **Remote attach.** Loopback only, on purpose — see above.
 
 ## License
 
