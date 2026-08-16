@@ -90,10 +90,24 @@ class Fold {
     }
   }
 
+  /**
+   * 把 `old` 换成 `next`——**换对象，不原地改**。
+   *
+   * ⚠️ 这条是踩出来的：UI 的行组件用 `React.memo` 按 `item` 做浅比较，
+   * 原地改字段时对象引用不变，memo 直接跳过重渲染，画面永远停在第一次渲染的样子
+   * （助手消息只剩一个流式光标，文字一个字都出不来）。**视图项必须当不可变值用。**
+   */
+  private replaceItem(old: StreamItem, next: StreamItem): void {
+    const i = this.items.indexOf(old)
+    if (i >= 0) this.items[i] = next
+    const s = this.streamItems.indexOf(old)
+    if (s >= 0) this.streamItems[s] = next
+  }
+
   /** 轮次中止/结束时，未完的流式项定格（streaming 归假），拼装状态作废。 */
   private closeStreams(): void {
     for (const item of this.streamItems) {
-      if (item) item.streaming = false
+      if (item && item.streaming) this.replaceItem(item, { ...item, streaming: false })
     }
     this.resetStepAssembly()
   }
@@ -146,11 +160,15 @@ class Fold {
         this.items.push(item)
         changed = true
       } else if (item.text !== block.text) {
-        item.text = block.text
+        const next = { ...item, text: block.text }
+        this.replaceItem(item, next)
+        item = next
         changed = true
       }
       if (pos === closedPos && item.streaming) {
-        item.streaming = false
+        const next = { ...item, streaming: false }
+        this.replaceItem(item, next)
+        item = next
         changed = true
       }
     }
@@ -168,9 +186,12 @@ class Fold {
         const item = streamed[i]
         const final = finals[i]
         if (!item) continue
-        item.streaming = false
-        if (final && item.kind === (final.type === 'text' ? 'assistant' : 'reasoning') && item.text !== final.text) {
-          item.text = final.text
+        const text =
+          final && item.kind === (final.type === 'text' ? 'assistant' : 'reasoning')
+            ? final.text
+            : item.text
+        if (item.streaming || text !== item.text) {
+          this.replaceItem(item, { ...item, text, streaming: false })
         }
       }
     } else {
@@ -212,9 +233,15 @@ class Fold {
     const open = this.openCalls.get(callId)
     if (open) {
       this.openCalls.delete(callId)
-      open.status = failed ? 'error' : 'ok'
-      open.result = block.content
-      if (view && view.for === 'result') open.view = view
+      // 同样换对象而不是原地改——理由见 replaceItem 的注释。
+      const next: ToolItem = {
+        ...open,
+        status: failed ? 'error' : 'ok',
+        result: block.content,
+        ...(view && view.for === 'result' ? { view } : {}),
+      }
+      const i = this.items.indexOf(open)
+      if (i >= 0) this.items[i] = next
     } else {
       // 页边界外的孤儿 result（fold 范围内没见过它的 call）：补一条已完成项。
       this.items.push({

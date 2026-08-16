@@ -182,6 +182,28 @@ test('loadOlder：往前翻页、prepend、页不带 projections 块所以不动
   await state.dispose()
 })
 
+test('流式更新换的是新对象，不是原地改（memo 的行组件靠它才会重渲染）', async () => {
+  const client = new FakeClient()
+  const { state, conversation } = await openConversation(client, [])
+  const s1 = sid('s1')
+
+  client.emitMux(eventFrame(s1, textDelta(1, 'Hel')), rid('c1'))
+  const first = conversation.items[0]
+  assert.ok(first && first.kind === 'assistant')
+
+  client.emitMux(eventFrame(s1, textDelta(2, 'lo')), rid('c2'))
+  const second = conversation.items[0]
+  assert.ok(second && second.kind === 'assistant')
+  assert.equal(second.text, 'Hello')
+
+  // ⚠️ 这是本条测试的全部意义：UI 的行组件用 React.memo 按 item 做浅比较。
+  // 原地改字段时引用不变，memo 跳过重渲染，助手消息就只剩一个光标、一个字都不出来。
+  assert.notEqual(second, first, '流式更新必须产生新的 item 对象')
+  assert.equal(first.text, 'Hel', '旧对象不该被改动')
+
+  await state.dispose()
+})
+
 test('history 读取失败：错误进会话视图，不静默吞掉', async () => {
   const client = new FakeClient()
   client.stubBaseline()
