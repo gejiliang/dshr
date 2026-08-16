@@ -8,6 +8,7 @@ import { createState, type ConversationView, type DshrState } from '@dshr/state'
 import {
   assistantMessage,
   blockEnd,
+  chunkAt,
   entry,
   eventFrame,
   FakeClient,
@@ -19,6 +20,8 @@ import {
   textDelta,
   toolCall,
   toolResult,
+  turnEnd,
+  turnStart,
   userMessage,
   type SessionEvent,
   type ToolEventView,
@@ -200,6 +203,52 @@ test('流式更新换的是新对象，不是原地改（memo 的行组件靠它
   // 原地改字段时引用不变，memo 跳过重渲染，助手消息就只剩一个光标、一个字都不出来。
   assert.notEqual(second, first, '流式更新必须产生新的 item 对象')
   assert.equal(first.text, 'Hel', '旧对象不该被改动')
+
+  await state.dispose()
+})
+
+test('轮次页脚：turn/end 折成 ▣ 项，带模型 provenance 与耗时；aborted 标 interrupted', async () => {
+  const client = new FakeClient()
+  const { state, conversation } = await openConversation(client, [])
+  const s1 = sid('s1')
+
+  client.emitMux(eventFrame(s1, turnStart(1, 5_000), rid('c1')))
+  client.emitMux(
+    eventFrame(s1, assistantMessage(2, [{ type: 'text', text: '答' }]), rid('c2')),
+  )
+  client.emitMux(eventFrame(s1, turnEnd(3, 7_500), rid('c3')))
+
+  const footer = conversation.items.at(-1)
+  assert.ok(footer && footer.kind === 'turn')
+  assert.equal(footer.durationMs, 2_500)
+  assert.equal(footer.interrupted, undefined)
+  assert.equal(footer.model, 'mock')
+  assert.equal(footer.provider, 'mock')
+
+  // aborted 的轮次：页脚仍在，标 interrupted
+  client.emitMux(eventFrame(s1, turnStart(4, 10_000), rid('c4')))
+  client.emitMux(eventFrame(s1, turnEnd(5, 10_100, 'aborted'), rid('c5')))
+  const aborted = conversation.items.at(-1)
+  assert.ok(aborted && aborted.kind === 'turn' && aborted.interrupted === true)
+
+  await state.dispose()
+})
+
+test('reasoning 时长：block-start/block-end 的时间差落在视图项上', async () => {
+  const client = new FakeClient()
+  const { state, conversation } = await openConversation(client, [])
+  const s1 = sid('s1')
+
+  client.emitMux(eventFrame(s1, chunkAt(1, 1_000, { type: 'block-start', index: 1, blockType: 'reasoning' }), rid('c1')))
+  client.emitMux(eventFrame(s1, reasoningDelta(2, '想'), rid('c2')))
+  client.emitMux(
+    eventFrame(s1, chunkAt(3, 1_256, { type: 'block-end', index: 1, block: { type: 'reasoning', text: '想' } })),
+    rid('c3'),
+  )
+  const item = conversation.items[0]
+  assert.ok(item && item.kind === 'reasoning')
+  assert.equal(item.durationMs, 256)
+  assert.equal(item.streaming, false)
 
   await state.dispose()
 })

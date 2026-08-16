@@ -1,11 +1,20 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { YELLOW, flush, makeApproval, makeQuestion, outputOf } from './helpers.ts'
+import './force-color.ts'
+import { flush, makeApproval, makeQuestion, outputOf } from './helpers.ts'
+import { theme } from '../lib/index.js'
 import { createElement as h } from 'react'
 import { cleanup, render } from 'ink-testing-library'
 import { PendingPrompt } from '../lib/index.js'
 
-test('approval：列出工具名与原因，黄色显眼头行', async (t) => {
+const fg = (hex: string): string => {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `\x1b[38;2;${r};${g};${b}m`
+}
+
+test('approval：△ 头行 + warning 竖条 + 工具名与原因，选项是 chip 行', async (t) => {
   t.after(cleanup)
   const pending = makeApproval({ toolName: 'bash', reason: 'wants to run: rm -rf build' })
   const app = render(h(PendingPrompt, { pending, onApprove: () => {} }))
@@ -13,26 +22,36 @@ test('approval：列出工具名与原因，黄色显眼头行', async (t) => {
   const out = outputOf(app)
   assert.ok(out.includes('bash'), '应列出工具名')
   assert.ok(out.includes('wants to run: rm -rf build'), '应列出原因')
-  assert.ok(out.includes(YELLOW), `待审批应用阻塞黄: ${JSON.stringify(out)}`)
-  assert.ok(out.includes('[a] allow once'))
+  assert.ok(out.includes('△ '), '应有 △ 头行')
+  assert.ok(out.includes('Permission required'), '应有标题')
+  assert.ok(out.includes(`${fg(theme.warning)}┃`), `审批面板应用 warning 竖条: ${JSON.stringify(out)}`)
+  assert.ok(out.includes('Allow once'), '应有 Allow once chip')
+  assert.ok(out.includes('Reject'), '应有 Reject chip')
+  assert.ok(out.includes('⇆ '), '应有选择键提示')
   app.unmount()
 })
 
-test('approval：按键作答——a 允许、r 拒绝、c 取消', async (t) => {
+test('approval：方向键选 chip，enter 确认', async (t) => {
   t.after(cleanup)
-  for (const [key, expected] of [
-    ['a', 'allowed-once'],
-    ['r', 'rejected'],
-    ['c', 'cancelled'],
-  ]) {
-    const outcomes = []
-    const app = render(h(PendingPrompt, { pending: makeApproval(), onApprove: (o) => outcomes.push(o) }))
-    await flush()
-    app.stdin.write(key)
-    await flush()
-    assert.deepEqual(outcomes, [expected], `按 ${key} 应得到 ${expected}`)
-    app.unmount()
-  }
+  const outcomes: string[] = []
+  const app = render(h(PendingPrompt, { pending: makeApproval(), onApprove: (o) => outcomes.push(o) }))
+  await flush()
+  // 默认选中第一项（Allow once），enter 即提交
+  app.stdin.write('\r')
+  await flush()
+  assert.deepEqual(outcomes, ['allowed-once'])
+  app.unmount()
+
+  // 右移一次选中 Reject
+  const outcomes2: string[] = []
+  const app2 = render(h(PendingPrompt, { pending: makeApproval(), onApprove: (o) => outcomes2.push(o) }))
+  await flush()
+  app2.stdin.write('\x1b[C') // right arrow
+  await flush()
+  app2.stdin.write('\r')
+  await flush()
+  assert.deepEqual(outcomes2, ['rejected'])
+  app2.unmount()
 })
 
 test('approval：没有 reason 时不渲染原因行', async (t) => {
@@ -40,11 +59,12 @@ test('approval：没有 reason 时不渲染原因行', async (t) => {
   const app = render(h(PendingPrompt, { pending: makeApproval(), onApprove: () => {} }))
   await flush()
   const out = app.lastFrame() ?? ''
-  assert.ok(out.includes('! approval required: bash'))
+  assert.ok(out.includes('Permission required'))
+  assert.ok(!out.includes('wants to run'))
   app.unmount()
 })
 
-test('question：渲染问题与选项（含描述），黄色头行', async (t) => {
+test('question：渲染问题与选项（含描述），accent 竖条', async (t) => {
   t.after(cleanup)
   const pending = makeQuestion([
     {
@@ -60,12 +80,13 @@ test('question：渲染问题与选项（含描述），黄色头行', async (t)
   const app = render(h(PendingPrompt, { pending, onAnswer: () => {} }))
   await flush()
   const out = outputOf(app)
-  assert.ok(out.includes('? setup'))
+  assert.ok(out.includes('setup'), '应有 header')
+  assert.ok(out.includes('? '), '应有 ? 头行')
   assert.ok(out.includes('Pick a color'))
   assert.ok(out.includes('[1] red'))
-  assert.ok(out.includes('— warm'))
+  assert.ok(out.includes('- warm'))
   assert.ok(out.includes('[2] blue'))
-  assert.ok(out.includes(YELLOW), `待回答应用阻塞黄: ${JSON.stringify(out)}`)
+  assert.ok(out.includes(`${fg(theme.accent)}┃`), `提问面板应用 accent 竖条: ${JSON.stringify(out)}`)
   app.unmount()
 })
 

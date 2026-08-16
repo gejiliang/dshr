@@ -1,20 +1,42 @@
 import { memo } from 'react'
-import { Text } from 'ink'
+import { Box, Text } from 'ink'
 import type { ConversationItem } from '@dshr/state'
-import { firstLine, truncate } from '../text-utils.js'
+import { theme } from '../theme.js'
+import { formatDuration } from '../text-utils.js'
 
 export type ReasoningItem = Extract<ConversationItem, { kind: 'reasoning' }>
 
+/** opencode `reasoningSummary`：开头的 `**加粗**` 行抽出来当标题。 */
+function reasoningTitle(text: string): string | null {
+  const match = text.trim().match(/^\*\*([^*\n]+)\*\*(?:\r?\n\r?\n|$)/)
+  return match !== null && match[1] !== undefined ? match[1].trim() : null
+}
+
 /**
- * reasoning 默认折叠成一行摘要：dim + 斜体，与正文明显区分。
- * 展开（看全文）留给后续的快捷键，这一版只有折叠态。
+ * reasoning 折成一行 `+ Thought: <时长>`（opencode `ReasoningHeader` 的折叠态）：
+ * `+` 表示可展开，warning 色。流式未收尾时上游是 Spinner "Thinking"，
+ * ink 里没有逐帧动画，用 `⋯` 静态占位。展开交互留待后续快捷键。
  */
 export const ReasoningRow = memo(function ReasoningRow({ item }: { item: ReasoningItem }) {
-  const snippet = truncate(firstLine(item.text.trim()) || 'thinking', 88)
+  const title = reasoningTitle(item.text)
+  const duration = item.durationMs !== undefined && !item.streaming ? formatDuration(item.durationMs) : null
+
+  if (item.streaming) {
+    return (
+      <Box paddingLeft={3} marginTop={1}>
+        <Text color={theme.warning}>⋯ Thinking{title === null ? '' : `: ${title}`}</Text>
+      </Box>
+    )
+  }
   return (
-    <Text dimColor italic>
-      ✻ {snippet}
-      {item.streaming ? ' …' : ''}
-    </Text>
+    <Box paddingLeft={3} marginTop={1}>
+      <Text color={theme.warning} wrap="truncate-end">
+        + Thought
+        {title === null && duration === null ? '' : ': '}
+        {title}
+        {title !== null && duration !== null ? ' · ' : ''}
+        {duration}
+      </Text>
+    </Box>
   )
 })

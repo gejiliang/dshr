@@ -1,25 +1,82 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DIM, flush, outputOf } from './helpers.ts'
+import './force-color.ts'
+import { fg, flush, outputOf } from './helpers.ts'
+import { theme } from '../lib/index.js'
 import { createElement as h } from 'react'
 import { cleanup, render } from 'ink-testing-library'
-import { Composer, hintFor, insertText } from '../lib/index.js'
+import { Composer, hintFor, insertText, setTerminalColumnsForTest } from '../lib/index.js'
 
-test('空输入时渲染 dim 占位提示，外框是唯一的 round 边框', async (t) => {
+test.before(() => {
+  setTerminalColumnsForTest(60)
+})
+
+test('输入框不是框：左 ┃ 竖条 + 底 ▀ 横线 + 左下角 ╹，没有右边框/上边框/圆角', async (t) => {
   t.after(cleanup)
-  const app = render(h(Composer, { onSubmit: () => {}, placeholder: 'Say something' }))
+  const app = render(h(Composer, { onSubmit: () => {} }))
   await flush()
   const out = outputOf(app)
-  assert.ok(out.includes(`${DIM}`), '占位提示应 dim')
-  assert.ok(out.includes('Say something'))
-  assert.ok(out.includes('╭'), '应有 round 边框')
-  assert.ok(out.includes('╯'), '应有 round 边框')
+  assert.ok(out.includes('┃'), '应有左侧 ┃ 竖条')
+  assert.ok(out.includes('╹'), '应有左下角 ╹')
+  assert.ok(out.includes('▀▀'), '应有底部 ▀ 横线')
+  assert.ok(!out.includes('╭') && !out.includes('╮') && !out.includes('╯') && !out.includes('╰'), '不应再有圆角框')
+  assert.ok(!out.includes('│') || !out.includes('┤'), '不应有右边框')
   app.unmount()
+})
+
+test('空输入时显示占位提示（muted），模式与模型写在框内那行', async (t) => {
+  t.after(cleanup)
+  const app = render(
+    h(Composer, { onSubmit: () => {}, preset: 'standard', model: 'deepseek-chat', provider: 'deepseek' }),
+  )
+  await flush()
+  const out = outputOf(app)
+  assert.ok(out.includes(`${fg(theme.textMuted)}Ask anything...`), '占位提示应 muted')
+  assert.ok(out.includes('Standard'), '模式名应在输入框内')
+  assert.ok(out.includes('deepseek-chat'), '模型名应在输入框内')
+  assert.ok(out.includes('·'), '模式与模型之间用 · 分隔')
+  app.unmount()
+})
+
+test('模式名用 primary 色（┃ 用 borderActive 色）', async (t) => {
+  t.after(cleanup)
+  const app = render(h(Composer, { onSubmit: () => {}, preset: 'standard', model: 'm' }))
+  await flush()
+  const out = outputOf(app)
+  assert.ok(out.includes(fg(theme.primary)), '模式名 primary')
+  assert.ok(out.includes(fg(theme.borderActive)), '竖条 borderActive')
+  app.unmount()
+})
+
+test('快捷键提示行：enter send + shift+enter newline；working 时左侧 esc interrupt', async (t) => {
+  t.after(cleanup)
+  let interrupted = 0
+  const app = render(
+    h(Composer, {
+      onSubmit: () => {},
+      working: true,
+      onInterrupt: () => interrupted++,
+    }),
+  )
+  await flush()
+  const out = outputOf(app)
+  assert.ok(out.includes('enter '), '应有 enter send 提示')
+  assert.ok(out.includes('send'), '应有 enter send 提示')
+  assert.ok(out.includes('shift+enter '), '应有 shift+enter newline 提示')
+  assert.ok(out.includes('newline'), '应有 shift+enter newline 提示')
+  assert.ok(out.includes('esc '), 'working 时应有 esc interrupt')
+  assert.ok(out.includes('interrupt'), 'working 时应有 esc interrupt')
+  app.unmount()
+
+  const app2 = render(h(Composer, { onSubmit: () => {} }))
+  await flush()
+  assert.ok(!(outputOf(app2)).includes('interrupt'), '非 working 不应有 interrupt 提示')
+  app2.unmount()
 })
 
 test('键入回显，Enter 提交并清空', async (t) => {
   t.after(cleanup)
-  const submitted = []
+  const submitted: string[] = []
   const app = render(h(Composer, { onSubmit: (text) => submitted.push(text) }))
   await flush()
   app.stdin.write('hello world')
@@ -29,13 +86,13 @@ test('键入回显，Enter 提交并清空', async (t) => {
   await flush()
   assert.deepEqual(submitted, ['hello world'])
   // 提交后清空，占位提示回来
-  assert.ok((app.lastFrame() ?? '').includes('Type a message'))
+  assert.ok((app.lastFrame() ?? '').includes('Ask anything'))
   app.unmount()
 })
 
 test('空白输入不提交', async (t) => {
   t.after(cleanup)
-  const submitted = []
+  const submitted: string[] = []
   const app = render(h(Composer, { onSubmit: (text) => submitted.push(text) }))
   await flush()
   app.stdin.write('\r')
@@ -46,7 +103,7 @@ test('空白输入不提交', async (t) => {
 
 test('多行：ctrl+j（\\n）插入换行，Enter 一次提交整段', async (t) => {
   t.after(cleanup)
-  const submitted = []
+  const submitted: string[] = []
   const app = render(h(Composer, { onSubmit: (text) => submitted.push(text) }))
   await flush()
   app.stdin.write('first')
@@ -64,7 +121,7 @@ test('多行：ctrl+j（\\n）插入换行，Enter 一次提交整段', async (t
 
 test('退格删除光标前一个字符', async (t) => {
   t.after(cleanup)
-  const submitted = []
+  const submitted: string[] = []
   const app = render(h(Composer, { onSubmit: (text) => submitted.push(text) }))
   await flush()
   app.stdin.write('abc')
@@ -73,6 +130,17 @@ test('退格删除光标前一个字符', async (t) => {
   app.stdin.write('\r')
   await flush()
   assert.deepEqual(submitted, ['ab'])
+  app.unmount()
+})
+
+test('working 时 esc 触发 onInterrupt', async (t) => {
+  t.after(cleanup)
+  let interrupted = 0
+  const app = render(h(Composer, { onSubmit: () => {}, onInterrupt: () => interrupted++ }))
+  await flush()
+  app.stdin.write('\x1b')
+  await flush()
+  assert.equal(interrupted, 1)
   app.unmount()
 })
 
@@ -102,7 +170,7 @@ test('`@` 触发引用提示面板', async (t) => {
 
 test('disabled 时不接受输入', async (t) => {
   t.after(cleanup)
-  const submitted = []
+  const submitted: string[] = []
   const app = render(h(Composer, { onSubmit: (text) => submitted.push(text), disabled: true }))
   await flush()
   app.stdin.write('nope')

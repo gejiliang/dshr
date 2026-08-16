@@ -1,14 +1,14 @@
 import { useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import type { ApprovalOutcome, PendingInteraction, QuestionItems } from '@dshr/state'
-import { colors } from '../theme.js'
+import { theme } from '../theme.js'
 
 export type ApprovalPending = Extract<PendingInteraction, { kind: 'approval' }>
 export type QuestionPending = Extract<PendingInteraction, { kind: 'question' }>
 export type QuestionItem = QuestionItems[number]
 
 /**
- * `answerQuestion(sessionId, answers)` 里 answers 的形状——
+ * `answerQuestion(sessionId, answers)` 里 answers 的形状--
  * dsh `AskUserQuestionAnswer` 的结构等价物（state 层按 `unknown` 接收）。
  */
 export interface QuestionAnswerItem {
@@ -30,8 +30,9 @@ export interface PendingPromptProps {
 }
 
 /**
- * 审批与提问的交互面——会话卡住时唯一的出口，所以要显眼：
- * 黄色加粗的 `!` / `?` 头行（状态色，不是装饰），键位提示 dim。
+ * 审批与提问的交互面（opencode `permission.tsx` / `question.tsx` 的对齐）：
+ * 左侧 warning 色 `┃` + `backgroundPanel` 底色的面板，
+ * 底部一条 `backgroundElement` 的选项行（chip），选中项 warning 底色。
  */
 export function PendingPrompt({ pending, onApprove, onAnswer, onCancel }: PendingPromptProps) {
   if (pending.kind === 'approval') {
@@ -42,6 +43,12 @@ export function PendingPrompt({ pending, onApprove, onAnswer, onCancel }: Pendin
   return <QuestionPrompt pending={pending} onAnswer={onAnswer ?? null} onCancel={onCancel ?? null} />
 }
 
+const APPROVAL_OPTIONS = [
+  { key: 'once', label: 'Allow once', outcome: 'allowed-once' },
+  { key: 'reject', label: 'Reject', outcome: 'rejected' },
+  { key: 'cancel', label: 'Cancel', outcome: 'cancelled' },
+] as const
+
 function ApprovalPrompt({
   pending,
   onApprove,
@@ -51,24 +58,96 @@ function ApprovalPrompt({
   onApprove: ((outcome: ApprovalOutcome) => void) | null
   onCancel: (() => void) | null
 }) {
+  const [selected, setSelected] = useState<string>(APPROVAL_OPTIONS[0].key)
+  const stateRef = useRef(selected)
+  stateRef.current = selected
+
+  const commit = (key: string): void => {
+    const option = APPROVAL_OPTIONS.find((o) => o.key === key)
+    if (!option) return
+    onApprove?.(option.outcome)
+  }
+
   useInput((input, key) => {
+    const current = stateRef.current
     if (key.escape) {
       onCancel?.()
       return
     }
+    if (key.return) {
+      commit(current)
+      return
+    }
+    if (key.leftArrow || input === 'h') {
+      const index = APPROVAL_OPTIONS.findIndex((o) => o.key === current)
+      const next = APPROVAL_OPTIONS[(index - 1 + APPROVAL_OPTIONS.length) % APPROVAL_OPTIONS.length]
+      if (next) setSelected(next.key)
+      return
+    }
+    if (key.rightArrow || input === 'l') {
+      const index = APPROVAL_OPTIONS.findIndex((o) => o.key === current)
+      const next = APPROVAL_OPTIONS[(index + 1) % APPROVAL_OPTIONS.length]
+      if (next) setSelected(next.key)
+      return
+    }
+    // 兼容旧键位：a 允许、r 拒绝、c 取消
     const ch = input.toLowerCase()
     if (ch === 'a' || ch === 'y') onApprove?.('allowed-once')
     else if (ch === 'r' || ch === 'n') onApprove?.('rejected')
     else if (ch === 'c') onApprove?.('cancelled')
   })
 
+  const bar = <Text color={theme.warning}>┃</Text>
+
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text bold color={colors.blocked}>
-        ! approval required: {pending.toolName}
+      <Text>
+        {bar}
+        <Text backgroundColor={theme.backgroundPanel}>
+          {'  '}
+          <Text color={theme.warning}>△ </Text>
+          <Text color={theme.text}>Permission required</Text>
+          <Text color={theme.textMuted}> · {pending.toolName}</Text>
+          {'  '}
+        </Text>
       </Text>
-      {pending.reason === undefined ? null : <Text> {pending.reason}</Text>}
-      <Text dimColor> [a] allow once · [r] reject · [c] cancel · esc dismiss</Text>
+      {pending.reason === undefined ? null : (
+        <Text>
+          {bar}
+          <Text backgroundColor={theme.backgroundPanel} color={theme.textMuted}>
+            {'  '}
+            {pending.reason}
+            {'  '}
+          </Text>
+        </Text>
+      )}
+      <Text>
+        {bar}
+        <Text backgroundColor={theme.backgroundPanel}>{'  '}</Text>
+      </Text>
+      <Box>
+        <Text color={theme.borderActive}>╹</Text>
+        <Box backgroundColor={theme.backgroundElement} flexDirection="row" gap={1}>
+          {APPROVAL_OPTIONS.map((option) => {
+            const active = option.key === selected
+            return (
+              <Text key={option.key} backgroundColor={active ? theme.warning : theme.backgroundPanel}>
+                <Text color={active ? theme.background : theme.textMuted} bold={active}>
+                  {' '}
+                  {option.label}{' '}
+                </Text>
+              </Text>
+            )
+          })}
+          <Text color={theme.text}>⇆ </Text>
+          <Text color={theme.textMuted}>select</Text>
+          <Text color={theme.text}>enter </Text>
+          <Text color={theme.textMuted}>confirm</Text>
+          <Text color={theme.text}>esc </Text>
+          <Text color={theme.textMuted}>dismiss</Text>
+          <Text> </Text>
+        </Box>
+      </Box>
     </Box>
   )
 }
@@ -184,36 +263,68 @@ function QuestionPrompt({
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text bold color={colors.blocked}>
-        ? {header}
-        {total > 1 ? ` (${state.index + 1}/${total})` : ''}
+      <Text>
+        <Text color={theme.accent}>┃</Text>
+        <Text backgroundColor={theme.backgroundPanel}>
+          {'  '}
+          <Text color={theme.accent}>? </Text>
+          <Text color={theme.text} bold>
+            {header}
+            {total > 1 ? ` (${state.index + 1}/${total})` : ''}
+          </Text>
+          {'  '}
+        </Text>
       </Text>
-      <Text> {question.question}</Text>
-      {question.detail === undefined ? null : <Text dimColor> {question.detail}</Text>}
+      <Text>
+        <Text color={theme.accent}>┃</Text>
+        <Text backgroundColor={theme.backgroundPanel} color={theme.text}>
+          {'  '}
+          {question.question}{' '}
+        </Text>
+      </Text>
+      {question.detail === undefined ? null : (
+        <Text>
+          <Text color={theme.accent}>┃</Text>
+          <Text backgroundColor={theme.backgroundPanel} color={theme.textMuted}>
+            {'  '}
+            {question.detail}{' '}
+          </Text>
+        </Text>
+      )}
       {options.map((option, index) => {
         const isPicked = state.picked.includes(option.label)
         const marker = multi ? (isPicked ? '[x]' : '[ ]') : `[${index + 1}]`
         return (
           <Text key={option.label}>
-            {'  '}
-            {marker} {option.label}
-            {option.description === undefined ? null : (
-              <Text dimColor> — {option.description}</Text>
-            )}
+            <Text color={theme.accent}>┃</Text>
+            <Text backgroundColor={theme.backgroundPanel}>
+              {'  '}
+              {marker} {option.label}
+              {isPicked ? <Text color={theme.success}> ✓</Text> : null}
+              {option.description === undefined ? null : (
+                <Text color={theme.textMuted}> - {option.description}</Text>
+              )}{' '}
+            </Text>
           </Text>
         )
       })}
       {inText ? (
         <Text>
-          {'  › '}
-          {state.draft}
-          <Text inverse> </Text>
+          <Text color={theme.accent}>┃</Text>
+          <Text backgroundColor={theme.backgroundPanel}>
+            {'  › '}
+            {state.draft}
+            <Text inverse> </Text>{' '}
+          </Text>
         </Text>
       ) : (
-        <Text dimColor>
-          {'  '}
-          {multi ? '1-9 toggle · enter confirm' : 'press number to answer'}
-          {options.length > 0 ? ' · [e] custom text' : ''} · esc dismiss
+        <Text>
+          <Text color={theme.accent}>┃</Text>
+          <Text backgroundColor={theme.backgroundPanel} color={theme.textMuted}>
+            {'  '}
+            {multi ? '1-9 toggle · enter confirm' : 'press number to answer'}
+            {options.length > 0 ? ' · [e] custom text' : ''} · esc dismiss{' '}
+          </Text>
         </Text>
       )}
     </Box>

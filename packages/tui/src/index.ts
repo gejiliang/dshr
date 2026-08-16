@@ -4,14 +4,17 @@
  * 数据形状只认 `@dshr/state` 的公开契约；本包不知道 HTTP/WebSocket 的存在。
  */
 export { Conversation, ItemRow } from './components/Conversation.js'
-export { Composer, hintFor, insertText } from './components/Composer.js'
+export { Composer, hintFor, insertText, setTerminalColumnsForTest } from './components/Composer.js'
 export type { ComposerHint, ComposerProps } from './components/Composer.js'
-export { StatusLine } from './components/StatusLine.js'
-export type { ConnectionStatus, StatusLineProps } from './components/StatusLine.js'
+export { Footer } from './components/Footer.js'
+export type { ConnectionStatus, FooterProps } from './components/Footer.js'
+export { Sidebar } from './components/Sidebar.js'
+export type { SidebarProps } from './components/Sidebar.js'
+export { Logo } from './components/Logo.js'
 export { PendingPrompt } from './components/PendingPrompt.js'
 export type {
   PendingPromptProps,
   QuestionAnswer,
   QuestionAnswerItem,
 } from './components/PendingPrompt.js'
-export { colors } from './theme.js'
+export { theme } from './theme.js'

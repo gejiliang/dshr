@@ -49,6 +49,12 @@ class Fold {
   private indexOrder: number[] = []
   /** 与 blocks() 位置平行的视图项；tool-call 位置为 null（由 tool/call 事件镜像）。 */
   private streamItems: (StreamItem | null)[] = []
+  /** 每个流式 block 的开始时间（epoch ms），按 chunk.index；算 reasoning 时长用。 */
+  private blockStartTimes = new Map<number, number>()
+  /** 当前轮的开始时间；turn/end 时算页脚耗时。 */
+  private turnStartTime: number | null = null
+  /** 这轮最后一个 assistant 消息的 provenance（页脚的模型名）。 */
+  private lastProvenance: { provider: string; model: string } | null = null
 
   constructor(
     private readonly items: ConversationItem[],
@@ -58,6 +64,10 @@ class Fold {
   push(event: SessionEvent, view: ToolEventView | undefined): void {
     switch (event.type) {
       case 'turn/start':
+        this.turnStartTime = event.time
+        this.lastProvenance = null
+        this.resetStepAssembly()
+        break
       case 'step/start':
         this.resetStepAssembly()
         break
@@ -65,8 +75,18 @@ class Fold {
         this.closeStreams()
         if (event.data.reason.kind === 'error') {
           this.items.push({ kind: 'error', id: `e-${event.seq}`, message: event.data.reason.error.message })
-          this.onChange()
         }
+        this.items.push({
+          kind: 'turn',
+          id: `turn-${event.data.turn}`,
+          durationMs: this.turnStartTime === null ? 0 : Math.max(0, event.time - this.turnStartTime),
+          ...(this.lastProvenance ? { model: this.lastProvenance.model, provider: this.lastProvenance.provider } : {}),
+          ...(event.data.reason.kind !== 'completed' && event.data.reason.kind !== 'blocked'
+            ? { interrupted: true }
+            : {}),
+        })
+        this.turnStartTime = null
+        this.onChange()
         break
       case 'user/message':
         this.onUserMessage(event)
@@ -116,6 +136,7 @@ class Fold {
     this.assembler = null
     this.indexOrder = []
     this.streamItems = []
+    this.blockStartTimes.clear()
   }
 
   private onUserMessage(event: Extract<SessionEvent, { type: 'user/message' }>): void {
@@ -143,7 +164,9 @@ class Fold {
     const assembler = this.assembler ?? (this.assembler = new BlockAssembler())
     assembler.push(chunk)
     if (!this.indexOrder.includes(chunk.index)) this.indexOrder.push(chunk.index)
-    const closedPos = chunk.type === 'block-end' ? this.indexOrder.indexOf(chunk.index) : -1
+    if (chunk.type === 'block-start') this.blockStartTimes.set(chunk.index, event.time)
+    const closedIndex = chunk.type === 'block-end' ? chunk.index : -1
+    const closedPos = closedIndex >= 0 ? this.indexOrder.indexOf(closedIndex) : -1
     const blocks = assembler.blocks()
     let changed = false
     for (let pos = 0; pos < blocks.length; pos++) {
@@ -166,7 +189,11 @@ class Fold {
         changed = true
       }
       if (pos === closedPos && item.streaming) {
-        const next = { ...item, streaming: false }
+        const start = this.blockStartTimes.get(closedIndex)
+        const next =
+          kind === 'reasoning' && start !== undefined
+            ? { ...item, streaming: false, durationMs: Math.max(0, event.time - start) }
+            : { ...item, streaming: false }
         this.replaceItem(item, next)
         item = next
         changed = true
@@ -177,6 +204,10 @@ class Fold {
 
   private onAssistantMessage(event: Extract<SessionEvent, { type: 'assistant/message' }>): void {
     // 组装消息是这一步的终态：chunk 流立起来的项以它为权威收尾，不重复建项。
+    const source = event.data.message.source
+    if (source.kind === 'model') {
+      this.lastProvenance = { provider: source.provider, model: source.model }
+    }
     const streamed = this.streamItems.filter((item): item is StreamItem => item !== null)
     if (streamed.length > 0) {
       const finals = event.data.message.content.filter(

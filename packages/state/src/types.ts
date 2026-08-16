@@ -71,7 +71,14 @@ export interface WorkspaceSummary {
 export type ConversationItem =
   | { kind: 'user'; id: string; text: string }
   | { kind: 'assistant'; id: string; text: string; streaming: boolean }
-  | { kind: 'reasoning'; id: string; text: string; streaming: boolean }
+  | {
+      kind: 'reasoning'
+      id: string
+      text: string
+      streaming: boolean
+      /** 从流式 block-start/block-end 的时间戳算出的思考时长；组装不出时缺省。 */
+      durationMs?: number
+    }
   | {
       kind: 'tool'
       id: string
@@ -82,6 +89,17 @@ export type ConversationItem =
       view?: Extract<MuxFrame, { type: 'session/event' }>['view']
       args?: unknown
       result?: unknown
+    }
+  /** 每轮结尾的页脚（opencode 的 `▣ Build · model · 2.1s`）。 */
+  | {
+      kind: 'turn'
+      id: string
+      durationMs: number
+      /** 这轮最后一个 assistant 消息的 provenance（`assistant/message` 自带）。 */
+      model?: string
+      provider?: string
+      /** 轮次没有正常收尾（aborted / error / max-tokens…）。 */
+      interrupted?: boolean
     }
   | { kind: 'error'; id: string; message: string }
   | { kind: 'notice'; id: string; text: string }

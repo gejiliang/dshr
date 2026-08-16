@@ -11,6 +11,7 @@
  *     → createState({ client }) → 定下 sessionId → render(<SessionApp/>)
  */
 import { realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { startReporter } from '@dshr/herdr'
 import { createDshrClient } from '@dshr/protocol'
@@ -20,6 +21,18 @@ import { createElement as h } from 'react'
 import { FlagError, parseFlags, USAGE, type ParsedFlags } from './flags.js'
 import { ensureHost, runServer, type HostHandle } from './host.js'
 import { SessionApp } from './session-app.js'
+
+const require = createRequire(import.meta.url)
+
+/** dshr 自身版本（底部版本行用）。 */
+function ownVersion(): string | undefined {
+  try {
+    const pkg = require('../package.json') as { version?: unknown }
+    return typeof pkg.version === 'string' ? pkg.version : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** 退出时留给「断连接、关自己拉起的 host」的上限，超了就直接走。 */
 const SHUTDOWN_BUDGET_MS = 1500
@@ -79,6 +92,8 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
   const sessionId = resolved
   const described = await client.call('host.describe', {})
   const model = described.ok ? described.value.model : undefined
+  const provider = described.ok ? described.value.provider : undefined
+  const version = ownVersion()
 
   // ⚠️ 终端尺寸拿不到时给一个体面的默认值。
   // ink 直接读 `process.stdout.columns/rows` 决定布局宽度，而在**尺寸未知的 tty**
@@ -101,7 +116,14 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
   const herdr = startReporter({ state, sessionId })
 
   const app = render(
-    h(SessionApp, { state, client, sessionId, ...(model !== undefined ? { model } : {}) }),
+    h(SessionApp, {
+      state,
+      client,
+      sessionId,
+      ...(model !== undefined ? { model } : {}),
+      ...(provider !== undefined ? { provider } : {}),
+      ...(version !== undefined ? { version } : {}),
+    }),
     { exitOnCtrlC: true },
   )
 

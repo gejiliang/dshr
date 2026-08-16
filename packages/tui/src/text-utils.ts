@@ -54,12 +54,28 @@ export function formatTokens(n: number): string {
 }
 
 export function formatDuration(ms: number): string {
+  // 与 opencode 的 Locale.duration 同构：256ms / 2.1s / 2m 8s / 1h 5m。
   if (!Number.isFinite(ms) || ms < 0) return '0ms'
   if (ms < 1000) return `${Math.round(ms)}ms`
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  const minutes = Math.floor(ms / 60_000)
-  const seconds = Math.round((ms % 60_000) / 1000)
-  return `${minutes}m${String(seconds).padStart(2, '0')}s`
+  if (ms < 3_600_000) {
+    const minutes = Math.floor(ms / 60_000)
+    const seconds = Math.floor((ms % 60_000) / 1000)
+    return `${minutes}m ${seconds}s`
+  }
+  if (ms < 86_400_000) {
+    const hours = Math.floor(ms / 3_600_000)
+    const minutes = Math.floor((ms % 3_600_000) / 60_000)
+    return `${hours}h ${minutes}m`
+  }
+  const days = Math.floor(ms / 86_400_000)
+  const hours = Math.floor((ms % 86_400_000) / 3_600_000)
+  return `${days}d ${hours}h`
+}
+
+/** 千分位整数（侧栏 tokens 展示用，与 opencode 的 toLocaleString 同观感）。 */
+export function formatCount(n: number): string {
+  return Number.isFinite(n) && n > 0 ? Math.round(n).toLocaleString('en-US') : '0'
 }
 
 /**
@@ -71,4 +87,36 @@ export function when<T extends Record<string, unknown>>(
   props: T,
 ): T | Record<string, never> {
   return cond ? props : {}
+}
+
+/** 东亚宽字符算 2 列的近似测宽（wrap 预算用，不追求完美）。 */
+export function displayWidth(text: string): number {
+  let width = 0
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0
+    const wide =
+      (code >= 0x1100 && code <= 0x115f) ||
+      (code >= 0x2e80 && code <= 0xa4cf) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe30 && code <= 0xfe4f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x1f300 && code <= 0x1f64f) ||
+      (code >= 0x1f900 && code <= 0x1f9ff) ||
+      (code >= 0x20000 && code <= 0x3fffd)
+    width += wide ? 2 : 1
+  }
+  return width
+}
+
+/** 按显示宽度硬折行（近似）；返回行数，供尾部窗口预算用。 */
+export function wrappedLineCount(text: string, width: number): number {
+  if (width < 4) return text.split('\n').length
+  let lines = 0
+  for (const raw of text.split('\n')) {
+    const w = displayWidth(raw)
+    lines += Math.max(1, Math.ceil(w / width))
+  }
+  return lines
 }

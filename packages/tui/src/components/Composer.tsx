@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
-import { Box, Text, useInput } from 'ink'
-import { colors } from '../theme.js'
-import { when } from '../text-utils.js'
+import { Box, Text, useInput, useStdout } from 'ink'
+import { theme } from '../theme.js'
 
 export interface ComposerProps {
   onSubmit: (text: string) => void
@@ -9,12 +8,22 @@ export interface ComposerProps {
   placeholder?: string
   /** 初始内容（恢复草稿 / 测试用），非受控。 */
   initialText?: string
+  /** 元信息行：模式（agent preset）与模型。opencode 写在输入框内那一行。 */
+  preset?: string
+  model?: string
+  provider?: string
+  /** 输入面板宽度（列）。缺省用终端宽度（减去右侧信息列后由外层传入）。 */
+  width?: number
+  /** agent 在跑时，快捷键提示行的左侧换成 `esc interrupt`（opencode 的运行态提示）。 */
+  working?: boolean
+  /** esc 中断当前轮。 */
+  onInterrupt?: () => void
   /**
    * **按键到达那一刻**再问一次「现在该不该收这个键」。
    *
    * ⚠️ 光靠 `disabled` 这个 prop 不够：它是**上一次渲染**的值，而 ink 是异步渲染。
    * 外壳在前缀动作（如 `Ctrl-B v`）之后要把输入框重新打开，若紧接着的键在重渲染
-   * 落地之前到达，就会被当成「还关着」而**永久丢掉**——不是延迟，是没了。
+   * 落地之前到达，就会被当成「还关着」而**永久丢掉**--不是延迟，是没了。
    * 实测：并行跑测试时稳定复现，等 5 秒也等不到那个键。
    *
    * 所以外壳用它传一个**读当前值**的函数（读 ref，不读 state）。
@@ -68,20 +77,50 @@ function moveCursorLine(text: string, cursor: number, delta: -1 | 1): number {
   return (starts[target] ?? 0) + Math.min(column, lines[target]?.length ?? 0)
 }
 
+function titlecase(text: string): string {
+  return text === '' ? text : `${text[0]?.toUpperCase() ?? ''}${text.slice(1)}`
+}
+
+/** 非组件环境（测试）注入终端宽度；ink 环境下由 useStdout 提供。 */
+let columnsOverride = 0
+export function setTerminalColumnsForTest(columns: number): void {
+  columnsOverride = columns
+}
+
 /**
- * 底部输入框——整个界面唯一的一条边框（round）。
+ * 底部输入框：**不是框**。左边一条 `┃`（borderActive 色），内容区
+ * `backgroundElement` 底色，底部 `╹` + `▀` 横线--没有右边框、没有上边框、
+ * 没有圆角（opencode `component/prompt` 的逐条对齐）。模式与模型写在框内
+ * 最后一行（`Standard · model provider`），下面一行是快捷键提示。
  *
  * 多行：Shift+Enter（kitty 协议）或 Ctrl+J 插入换行，Enter 提交。
- * 光标用 inverse 渲染；支持左右/上下移动、退格、粘贴多行。
- * `/` 开头触发命令提示、`@` token 触发引用提示；候选列表这一版是空面板。
+ * 光标用 inverse 渲染。`/` 触发命令提示、`@` token 触发引用提示；
+ * 候选列表这一版是空面板。
  */
 export function Composer({
   onSubmit,
   disabled = false,
-  placeholder = 'Type a message…  (shift+enter / ctrl+j for newline)',
+  placeholder = 'Ask anything...',
   initialText = '',
+  preset,
+  model,
+  provider,
+  width: widthProp,
+  working = false,
+  onInterrupt,
   acceptsKey,
 }: ComposerProps) {
+  const { stdout } = useStdout()
+  const liveColumns = stdout !== undefined && stdout.columns > 0 ? stdout.columns : 0
+  const width =
+    widthProp !== undefined
+      ? widthProp
+      : columnsOverride > 0
+        ? columnsOverride
+        : liveColumns > 0
+          ? liveColumns
+          : 80
+
   const [text, setText] = useState(initialText)
   const [cursor, setCursor] = useState(initialText.length)
   // useInput 回调闭包可能过期、连续按键之间渲染未必已提交（粘贴就是一个事件一串字符），
@@ -96,10 +135,14 @@ export function Composer({
 
   useInput(
     (input, key) => {
-      // 按键到达那一刻现问一次——`disabled` 是上一次渲染的值，会漏键（见 acceptsKey 的注释）。
+      // 按键到达那一刻现问一次--`disabled` 是上一次渲染的值，会漏键（见 acceptsKey 的注释）。
       if (acceptsKey !== undefined && !acceptsKey()) return
       const { text: current, cursor: at } = stateRef.current
-      if (key.escape || key.tab) return
+      if (key.escape) {
+        onInterrupt?.()
+        return
+      }
+      if (key.tab) return
       if (key.return) {
         if (key.shift) {
           apply(insertText(current, at, '\n'))
@@ -109,7 +152,7 @@ export function Composer({
         apply({ text: '', cursor: 0 })
         return
       }
-      // 终端的 Backspace 键多数发 '\x7f'，ink 把它解析成 delete——两个都按退格处理。
+      // 终端的 Backspace 键多数发 '\x7f'，ink 把它解析成 delete--两个都按退格处理。
       if (key.backspace || key.delete) {
         if (at > 0) apply({ text: current.slice(0, at - 1) + current.slice(at), cursor: at - 1 })
         return
@@ -140,32 +183,113 @@ export function Composer({
   )
 
   const hint = hintFor(text, cursor)
-  const before = text.slice(0, cursor)
-  const atChar = text[cursor]
-  const after = atChar === undefined ? '' : text.slice(cursor + 1)
-  const cursorGlyph = atChar === undefined ? ' ' : atChar === '\n' ? ' \n' : atChar
+  const lines = text === '' ? [''] : text.split('\n')
+  // 光标落在第几行、该行起始偏移
+  let cursorLine = 0
+  let lineStart = 0
+  {
+    let offset = 0
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? ''
+      if (cursor <= offset + line.length) {
+        cursorLine = i
+        lineStart = offset
+        break
+      }
+      offset += line.length + 1
+      if (i === lines.length - 1) {
+        cursorLine = i
+        lineStart = offset - (line.length + 1)
+      }
+    }
+  }
+
+  const bar = <Text color={theme.borderActive}>┃</Text>
+  const fill = (n: number): string => ' '.repeat(Math.max(0, n))
 
   return (
     <Box flexDirection="column">
       {hint === null ? null : (
-        <Box flexDirection="column" paddingX={1}>
-          <Text dimColor>{hint === 'command' ? '/ commands' : '@ references'}</Text>
-          <Text dimColor> (no candidates wired yet)</Text>
+        <Box flexDirection="column" paddingLeft={1}>
+          <Text color={theme.textMuted}>{hint === 'command' ? '/ commands' : '@ references'}</Text>
+          <Text color={theme.textMuted}> (no candidates wired yet)</Text>
         </Box>
       )}
-      <Box borderStyle="round" paddingX={1} {...when(disabled, { borderColor: colors.chrome })}>
-        {text === '' ? (
-          <Text>
+      {/* 顶 padding 行 */}
+      <Text>
+        {bar}
+        <Text backgroundColor={theme.backgroundElement}>{fill(width - 1)}</Text>
+      </Text>
+      {/* 输入区：空则一行占位提示；有内容则逐行，光标块落在光标行 */}
+      {text === '' ? (
+        <Text>
+          {bar}
+          <Text backgroundColor={theme.backgroundElement}>
             <Text inverse> </Text>
-            <Text dimColor>{placeholder}</Text>
+            <Text color={theme.textMuted}>{placeholder}</Text>
+            <Text backgroundColor={theme.backgroundElement}>{fill(width - placeholder.length - 3)}</Text>
           </Text>
-        ) : (
+        </Text>
+      ) : (
+        lines.map((line, index) => {
+          const onCursorLine = index === cursorLine
+          const at = onCursorLine ? cursor - lineStart : -1
+          const glyph = at >= 0 ? (line[at] ?? ' ') : ''
+          return (
+            <Text key={index}>
+              {bar}
+              <Text backgroundColor={theme.backgroundElement} color={theme.text}>
+                {'  '}
+                {onCursorLine ? line.slice(0, at) : line}
+                {onCursorLine ? <Text inverse bold>{glyph === '' ? ' ' : glyph}</Text> : null}
+                {onCursorLine ? line.slice(at + glyph.length) : ''}
+              </Text>
+            </Text>
+          )
+        })
+      )}
+      {/* meta 行前的空行 */}
+      <Text>
+        {bar}
+        <Text backgroundColor={theme.backgroundElement}>{fill(width - 1)}</Text>
+      </Text>
+      {/* 模式与模型行：`Standard · model provider` */}
+      <Text>
+        {bar}
+        <Text backgroundColor={theme.backgroundElement}>
+          <Text color={theme.primary}>  {titlecase(preset ?? 'standard')}</Text>
+          {model !== undefined ? (
+            <>
+              <Text color={theme.textMuted}> · </Text>
+              <Text color={theme.text}>{model}</Text>
+              {provider !== undefined ? <Text color={theme.textMuted}> {provider}</Text> : null}
+            </>
+          ) : null}
+        </Text>
+      </Text>
+      {/* 底线：╹ + ▀ */}
+      <Text>
+        <Text color={theme.borderActive}>╹</Text>
+        <Text color={theme.backgroundElement}>{'▀'.repeat(Math.max(0, width - 1))}</Text>
+      </Text>
+      {/* 快捷键提示行 */}
+      <Box justifyContent={working ? 'space-between' : 'flex-end'}>
+        {working ? (
           <Text>
-            {before}
-            <Text inverse>{cursorGlyph}</Text>
-            {after}
+            <Text color={theme.text}>… esc </Text>
+            <Text color={theme.textMuted}>interrupt</Text>
           </Text>
-        )}
+        ) : null}
+        <Box gap={2}>
+          <Text>
+            <Text color={theme.text}>enter </Text>
+            <Text color={theme.textMuted}>send</Text>
+          </Text>
+          <Text>
+            <Text color={theme.text}>shift+enter </Text>
+            <Text color={theme.textMuted}>newline</Text>
+          </Text>
+        </Box>
       </Box>
     </Box>
   )

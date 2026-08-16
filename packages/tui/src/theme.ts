@@ -1,18 +1,33 @@
 /**
- * 全包唯一一套颜色约定。
+ * 主题 token：名字与取值都照搬 opencode（`packages/tui/src/theme/assets/opencode.json`
+ * 的 dark 变体）。上游用 RGBA，ink 认 hex，值一一对应：
  *
- * chrome 一律 gray/dim；只有状态才上色——错误红、阻塞/待办黄。
- * 角色竖线是唯一的例外：用户 cyan、助手 gray，这是区分角色的手段，不是装饰。
+ *   background #0a0a0a   backgroundPanel #141414   backgroundElement #1e1e1e
+ *   border    #484848   borderActive    #606060   borderSubtle      #323232
+ *   text      #eeeeee   textMuted       #808080
+ *   primary   #fab283   secondary       #5c9cf5   accent            #9d7cd8
+ *   error     #e06c75   warning         #f5a742   success           #7fd88f
+ *   info      #56b6c2
+ *
+ * 只有状态才上色；chrome 一律 textMuted。上游还有 markdown/syntax/diff 一组
+ * token，dshr 暂时不渲染那些视图，先不抄。
  */
-export const colors = {
-  /** 用户消息左侧竖线。 */
-  userBar: 'cyan',
-  /** 助手消息左侧竖线。 */
-  assistantBar: 'gray',
-  /** 错误 / 工具失败。 */
-  error: 'red',
-  /** 阻塞 / 待审批 / 待回答。 */
-  blocked: 'yellow',
-  /** 一切 chrome：提示、摘要、状态行。 */
-  chrome: 'gray',
+export const theme = {
+  background: '#0a0a0a',
+  backgroundPanel: '#141414',
+  backgroundElement: '#1e1e1e',
+  border: '#484848',
+  borderActive: '#606060',
+  borderSubtle: '#323232',
+  text: '#eeeeee',
+  textMuted: '#808080',
+  primary: '#fab283',
+  secondary: '#5c9cf5',
+  accent: '#9d7cd8',
+  error: '#e06c75',
+  warning: '#f5a742',
+  success: '#7fd88f',
+  info: '#56b6c2',
 } as const
+
+export type ThemeToken = keyof typeof theme

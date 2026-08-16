@@ -137,6 +137,30 @@ export function chunk(seq: number, turn: number, step: number, c: Record<string,
   return { type: 'assistant/chunk', seq, time: 1_000 + seq, data: { turn, step, chunk: c } } as SessionEvent
 }
 
+/** 指定 time 的 chunk 构造器（算 reasoning 时长用）。 */
+export function chunkAt(seq: number, time: number, c: Record<string, unknown>, turn = 1, step = 1): SessionEvent {
+  return { type: 'assistant/chunk', seq, time, data: { turn, step, chunk: c } } as SessionEvent
+}
+
+export function turnStart(seq: number, time: number, turn = 1): SessionEvent {
+  return { type: 'turn/start', seq, time, data: { turn } } as SessionEvent
+}
+
+export function turnEnd(
+  seq: number,
+  time: number,
+  reason: 'completed' | 'aborted' | 'blocked' | 'error' | 'max-tokens' = 'completed',
+  turn = 1,
+): SessionEvent {
+  const data =
+    reason === 'error'
+      ? { turn, reason: { kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } } }
+      : reason === 'aborted'
+        ? { turn, reason: { kind: 'aborted', reason: { kind: 'user' } } }
+        : { turn, reason: { kind: reason } }
+  return { type: 'turn/end', seq, time, data } as SessionEvent
+}
+
 export function textDelta(seq: number, text: string, index = 0, turn = 1, step = 1): SessionEvent {
   return chunk(seq, turn, step, { type: 'text-delta', index, text })
 }
