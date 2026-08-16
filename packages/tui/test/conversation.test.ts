@@ -1,18 +1,18 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PRIMARY, RED, YELLOW, bg, fg, flush, makeView, outputOf } from './helpers.ts'
+import { RED, SECONDARY, YELLOW, bg, fg, flush, makeView, outputOf } from './helpers.ts'
 import { createElement as h } from 'react'
 import { cleanup, render } from 'ink-testing-library'
 import { Box } from 'ink'
 import { Conversation, theme } from '../lib/index.js'
 
-test('用户消息：左侧粗竖线 ┃（primary）、上下各留一行空、panel 底色', async (t) => {
+test('用户消息：左侧粗竖线 ┃（agent 色 secondary）、上下各留一行空、panel 底色', async (t) => {
   t.after(cleanup)
   const view = makeView([{ kind: 'user', id: 'u1', text: 'hello there' }])
   const app = render(h(Conversation, { view }))
   await flush()
   const out = outputOf(app)
-  assert.ok(out.includes(`${PRIMARY}┃`), `用户竖线应为 primary: ${JSON.stringify(out)}`)
+  assert.ok(out.includes(`${SECONDARY}┃`), `用户竖线应为 secondary: ${JSON.stringify(out)}`)
   assert.ok(out.includes('hello there'))
   // 内容区带 backgroundPanel 底色
   assert.ok(out.includes(bg(theme.backgroundPanel)), '用户消息应有 panel 底色')
@@ -76,7 +76,7 @@ test('reasoning 流式中显示 ⋯ Thinking，无时长', async (t) => {
   app.unmount()
 })
 
-test('工具调用一行：`-> Read .`（图标 + 工具名 + 参数），完成后 textMuted', async (t) => {
+test('工具调用一行：`→ Read .`（真箭头图标 + 工具名 + 参数），完成后 textMuted', async (t) => {
   t.after(cleanup)
   const view = makeView([
     {
@@ -92,13 +92,34 @@ test('工具调用一行：`-> Read .`（图标 + 工具名 + 参数），完成
   const app = render(h(Conversation, { view }))
   await flush()
   const out = outputOf(app)
-  assert.ok(out.includes('-> read .'), `应为 -> read .: ${JSON.stringify(out)}`)
+  assert.ok(out.includes('→ Read .'), `应为 → Read .: ${JSON.stringify(out)}`)
   assert.ok(out.includes(fg(theme.textMuted)), '完成的工具行应为 textMuted')
   assert.ok(!out.includes('"path"'), '不应渲染完整 args JSON')
   app.unmount()
 })
 
-test('bash 工具用 $ 图标；running 行是 text 色 + …', async (t) => {
+test('工具参数是未解析 JSON 串时也能挑出标量参数', async (t) => {
+  t.after(cleanup)
+  const view = makeView([
+    {
+      kind: 'tool',
+      id: 't4',
+      callId: 'c4',
+      name: 'read',
+      status: 'ok',
+      args: '{"path":"."}',
+      result: 'ok',
+    },
+  ])
+  const app = render(h(Conversation, { view }))
+  await flush()
+  const out = outputOf(app)
+  assert.ok(out.includes('→ Read .'), `JSON 串参数应解出 .: ${JSON.stringify(out)}`)
+  assert.ok(!out.includes('"path"'), '不应渲染原始 JSON 串')
+  app.unmount()
+})
+
+test('bash 工具：`$ <command>`（上游折叠行不带工具名）；running 行是 text 色 + …', async (t) => {
   t.after(cleanup)
   const view = makeView([
     { kind: 'tool', id: 't2', callId: 'c2', name: 'bash', status: 'running', args: { command: 'npm test' } },
@@ -106,7 +127,7 @@ test('bash 工具用 $ 图标；running 行是 text 色 + …', async (t) => {
   const app = render(h(Conversation, { view }))
   await flush()
   const out = outputOf(app)
-  assert.ok(out.includes('$ bash npm test'), `应为 $ bash npm test: ${JSON.stringify(out)}`)
+  assert.ok(out.includes('$ npm test'), `应为 $ npm test: ${JSON.stringify(out)}`)
   assert.ok(out.includes('…'), 'running 应有流式标记')
   app.unmount()
 })
@@ -147,7 +168,9 @@ test('每轮结尾页脚：`▣ Standard · model · 2.5s`；interrupted 降为 
   const app = render(h(Conversation, { view, preset: 'standard' }))
   await flush()
   const out = outputOf(app)
-  assert.ok(out.includes(`${PRIMARY}▣`), `▣ 应为 primary: ${JSON.stringify(out)}`)
+  assert.ok(out.includes(`${SECONDARY}▣`), `▣ 应为 secondary: ${JSON.stringify(out)}`)
+  const plain = out.replace(/\u001b\[[0-9;]*m/g, '')
+  assert.ok(plain.includes('▣  Standard'), `▣ 后应有两个空格: ${JSON.stringify(plain)}`)
   assert.ok(out.includes('Standard'), '模式名 titlecase')
   assert.ok(out.includes('· deepseek-chat'), '应含模型名')
   assert.ok(out.includes('2.5s'), '应含耗时')

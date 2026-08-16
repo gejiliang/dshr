@@ -9,30 +9,34 @@ export type ErrorItem = Extract<ConversationItem, { kind: 'error' }>
 export type NoticeItem = Extract<ConversationItem, { kind: 'notice' }>
 
 /**
- * 用户消息：左侧粗竖线 `┃`（opencode 的 SplitBorder），内容区 `backgroundPanel`
- * 底色、上下各留一行空、正文缩进 2。这是 opencode `UserMessage` 的逐条对齐。
+ * 用户消息：左侧粗竖线 `┃`（opencode 的 SplitBorder，色 = agent 色，Build = secondary），
+ * 内容区 `backgroundPanel` 底色**填满整行**（上游实测：padding 行与正文行的底色都涂到
+ * 对话区右缘，不是只有文字底下有）、上下各留一行空、正文缩进 2。
+ * 这是 opencode `UserMessage` 的逐条对齐。
  */
 export const UserMessage = memo(function UserMessage({ item, first = false }: { item: UserItem; first?: boolean }) {
   const lines = item.text.split('\n')
+  const bar = <Text color={theme.secondary}>┃</Text>
+  const padRow = (
+    <Box flexDirection="row">
+      {bar}
+      <Box flexGrow={1} backgroundColor={theme.backgroundPanel}>
+        <Text> </Text>
+      </Box>
+    </Box>
+  )
   return (
     <Box flexDirection="column" marginTop={first ? 0 : 1}>
-      <Text>
-        <Text color={theme.primary}>┃</Text>
-        <Text backgroundColor={theme.backgroundPanel}>  </Text>
-      </Text>
+      {padRow}
       {lines.map((line, index) => (
-        <Text key={index}>
-          <Text color={theme.primary}>┃</Text>
-          <Text backgroundColor={theme.backgroundPanel} color={theme.text}>
-            {'  '}
-            {line === '' ? ' ' : line}
-          </Text>
-        </Text>
+        <Box flexDirection="row" key={index}>
+          {bar}
+          <Box flexGrow={1} backgroundColor={theme.backgroundPanel} paddingLeft={2}>
+            <Text color={theme.text}>{line === '' ? ' ' : line}</Text>
+          </Box>
+        </Box>
       ))}
-      <Text>
-        <Text color={theme.primary}>┃</Text>
-        <Text backgroundColor={theme.backgroundPanel}>  </Text>
-      </Text>
+      {padRow}
     </Box>
   )
 })

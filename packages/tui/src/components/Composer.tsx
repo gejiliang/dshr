@@ -81,6 +81,18 @@ function titlecase(text: string): string {
   return text === '' ? text : `${text[0]?.toUpperCase() ?? ''}${text.slice(1)}`
 }
 
+/** 上游 home 路由的占位例子池（`Ask anything... "<example>"`），每次提交轮换一个。 */
+const PLACEHOLDER_EXAMPLES = [
+  'Fix a TODO in the codebase',
+  'What is the tech stack of this project?',
+  'Fix broken tests',
+] as const
+let placeholderCursor = 0
+
+function defaultPlaceholder(): string {
+  return `Ask anything... "${PLACEHOLDER_EXAMPLES[placeholderCursor % PLACEHOLDER_EXAMPLES.length]}"`
+}
+
 /** 非组件环境（测试）注入终端宽度；ink 环境下由 useStdout 提供。 */
 let columnsOverride = 0
 export function setTerminalColumnsForTest(columns: number): void {
@@ -88,10 +100,13 @@ export function setTerminalColumnsForTest(columns: number): void {
 }
 
 /**
- * 底部输入框：**不是框**。左边一条 `┃`（borderActive 色），内容区
- * `backgroundElement` 底色，底部 `╹` + `▀` 横线--没有右边框、没有上边框、
- * 没有圆角（opencode `component/prompt` 的逐条对齐）。模式与模型写在框内
- * 最后一行（`Standard · model provider`），下面一行是快捷键提示。
+ * 底部输入框：**不是框**。左边一条 `┃`、左下角 `╹`（都是 agent 色--上游 Build =
+ * secondary，`tint(theme.border, highlight())`），内容区 `backgroundElement` 底色，
+ * 底部 `▀` 横线--没有右边框、没有上边框、没有圆角（opencode `component/prompt`
+ * 的逐条对齐）。模式与模型写在框内最后一行（`Standard · model provider`），
+ * 下面一行是快捷键提示。
+ *
+ * 占位提示照上游 home 路由：`Ask anything... "<example>"`，例子池每次提交轮换。
  *
  * 多行：Shift+Enter（kitty 协议）或 Ctrl+J 插入换行，Enter 提交。
  * 光标用 inverse 渲染。`/` 触发命令提示、`@` token 触发引用提示；
@@ -100,7 +115,7 @@ export function setTerminalColumnsForTest(columns: number): void {
 export function Composer({
   onSubmit,
   disabled = false,
-  placeholder = 'Ask anything...',
+  placeholder,
   initialText = '',
   preset,
   model,
@@ -148,7 +163,10 @@ export function Composer({
           apply(insertText(current, at, '\n'))
           return
         }
-        if (current.trim() !== '') onSubmit(current)
+        if (current.trim() !== '') {
+          placeholderCursor += 1
+          onSubmit(current)
+        }
         apply({ text: '', cursor: 0 })
         return
       }
@@ -183,6 +201,7 @@ export function Composer({
   )
 
   const hint = hintFor(text, cursor)
+  const shownPlaceholder = placeholder ?? defaultPlaceholder()
   const lines = text === '' ? [''] : text.split('\n')
   // 光标落在第几行、该行起始偏移
   let cursorLine = 0
@@ -204,7 +223,7 @@ export function Composer({
     }
   }
 
-  const bar = <Text color={theme.borderActive}>┃</Text>
+  const bar = <Text color={theme.secondary}>┃</Text>
   const fill = (n: number): string => ' '.repeat(Math.max(0, n))
 
   return (
@@ -225,9 +244,10 @@ export function Composer({
         <Text>
           {bar}
           <Text backgroundColor={theme.backgroundElement}>
+            {' '}
             <Text inverse> </Text>
-            <Text color={theme.textMuted}>{placeholder}</Text>
-            <Text backgroundColor={theme.backgroundElement}>{fill(width - placeholder.length - 3)}</Text>
+            <Text color={theme.textMuted}>{shownPlaceholder}</Text>
+            <Text backgroundColor={theme.backgroundElement}>{fill(width - shownPlaceholder.length - 4)}</Text>
           </Text>
         </Text>
       ) : (
@@ -257,7 +277,7 @@ export function Composer({
       <Text>
         {bar}
         <Text backgroundColor={theme.backgroundElement}>
-          <Text color={theme.primary}>  {titlecase(preset ?? 'standard')}</Text>
+          <Text color={theme.secondary}>  {titlecase(preset ?? 'standard')}</Text>
           {model !== undefined ? (
             <>
               <Text color={theme.textMuted}> · </Text>
@@ -269,7 +289,7 @@ export function Composer({
       </Text>
       {/* 底线：╹ + ▀ */}
       <Text>
-        <Text color={theme.borderActive}>╹</Text>
+        <Text color={theme.secondary}>╹</Text>
         <Text color={theme.backgroundElement}>{'▀'.repeat(Math.max(0, width - 1))}</Text>
       </Text>
       {/* 快捷键提示行 */}

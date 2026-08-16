@@ -23,12 +23,13 @@ test('底部栏：左 cwd（muted），右一排 chip：连接 + 模型', async 
   app.unmount()
 })
 
-test('未决审批画 △ N（warning），没有时不画', async (t) => {
+test('未决审批画 △ N（△ warning、数字 text），没有时不画', async (t) => {
   t.after(cleanup)
   const app = render(h(Footer, { connection: 'ready', pendingApprovals: 2 }))
   await flush()
   const out = outputOf(app)
-  assert.ok(out.includes(`${fg(theme.warning)}△ 2 approvals`), '未决审批 chip 应为 warning 色')
+  assert.ok(out.includes(`${fg(theme.warning)}△`), '△ 应为 warning 色')
+  assert.ok(out.includes('2 approvals'), '未决审批数与标签')
   app.unmount()
 
   const app2 = render(h(Footer, { connection: 'ready' }))

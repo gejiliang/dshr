@@ -38,13 +38,12 @@ test('空输入时显示占位提示（muted），模式与模型写在框内那
   app.unmount()
 })
 
-test('模式名用 primary 色（┃ 用 borderActive 色）', async (t) => {
+test('模式名与 ┃ 用 agent 色（上游 Build = secondary）', async (t) => {
   t.after(cleanup)
   const app = render(h(Composer, { onSubmit: () => {}, preset: 'standard', model: 'm' }))
   await flush()
   const out = outputOf(app)
-  assert.ok(out.includes(fg(theme.primary)), '模式名 primary')
-  assert.ok(out.includes(fg(theme.borderActive)), '竖条 borderActive')
+  assert.ok(out.includes(fg(theme.secondary)), '模式名与竖条 secondary')
   app.unmount()
 })
 

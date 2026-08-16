@@ -132,3 +132,37 @@ tmux -L ds capture-pane -p -t 0
 **两张图并排贴进报告，逐条说明对应关系**：输入框的 `┃`/`▀`/`╹`、
 助手消息无竖线、`+ Thought:` 折叠、`→ Tool arg` 一行、`▣` 每轮页脚、
 右侧信息列、底部 cwd 与 chip。**对不上就继续改，不要贴一张对不上的图说做完了。**
+
+## 七、1.18.18 实测补丁（2026-08-16 收尾轮，逐字核对源码 + 带色截屏）
+
+收尾轮把上面每一条都对着 `sst/opencode` 源码和 `capture-pane -e` 重验了一遍。
+与上文（或第一版实现）不一致、**以源码为准**的：
+
+- **agent 色是 secondary，不是 primary/borderActive。** `local.agent.color()`：
+  Build 没配色 → `colors()[0]` = `theme.secondary`（#5c9cf5）。用户消息 `┃`、
+  每轮页脚 `▣`、输入框 `┃`/`╹`、框内模式名（`Build`）**全是这个色**
+  （边框是 `tint(theme.border, agent色)`）。dshr 没有 per-preset 配色，
+  统一用 `theme.secondary` 对齐 Build 的外观。
+- **session 视图的最底行不是 `footer.tsx`。** 1.18.18 里 `routes/session/footer.tsx`
+  已不被 session 路由引用（死代码）。真正的最底行是 prompt 的 hint 行：
+  左 cwd（textMuted、marginLeft 1），右 `usage` 或 `tab agents` + `ctrl+p commands`
+  （gap 2、键 text 色、说明 textMuted）。`• OpenCode <version>` 在**侧栏底部行**
+  （`feature-plugins/sidebar/footer.tsx`：`•` success + `Open` muted 粗 + `Code` text 粗）。
+  dshr 保留自己的底部栏（cwd + chip），属文档化取舍，不变。
+- **用户消息的 panel 底色整行涂满**（含上下 padding 行、涂到对话区右缘），
+  不是只有文字底下有。
+- **InlineTool 图标表**（`routes/session/index.tsx` 逐个挖出）：
+  `read →`（真箭头，不是 ASCII `->`）、`write/edit ←`、`glob/grep ✱`、`bash $`、
+  `webfetch/apply_patch %`、`websearch ◈`、`question/skill →`、
+  `task ✓(完成)/│(未完)`、`todowrite` 与未认得的工具 `⚙`。
+  **bash/shell 的折叠行不带工具名**，只有 `$ <command>`。
+  侧栏区块标题（`Context`、`LSP`）**加粗**。
+- **`▣` 后是两个空格**（`▣{" "}` 再加一个独立空格）：`▣  Build · <model> · 3.8s`。
+- **dsh 的 call view title 已是完整标签**（含工具名，如 `Read .`）——有 view 时直接用，
+  再拼一遍工具名会变成 `Read Read .`（踩过）。事件流里 `tool/call` 的 `arguments`
+  常是**未解析的 JSON 串**，挑标量参数前先 `JSON.parse`，不然显示成 `→ Read {"path":"."}`。
+- 输入框占位提示是 `Ask anything... "<example>"`，例子池
+  `["Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"]`
+  每次提交轮换（上游 home 路由）。
+- **空会话（home）输入框不钉底**：logo + 输入框作为一个整体垂直居中；
+  有对话后输入框才钉底、对话顶格。dshr 同。

@@ -7,6 +7,7 @@ export const YELLOW = fg(theme.warning)
 export const CYAN = fg(theme.info)
 export const GRAY = fg(theme.textMuted)
 export const PRIMARY = fg(theme.primary)
+export const SECONDARY = fg(theme.secondary)
 export const DIM = '\x1b[2m'
 export const ITALIC = '\x1b[3m'
 

@@ -46,7 +46,9 @@ export function Sidebar({ title, workspace, contextTokens, contextPercent, versi
       </Box>
       {hasContext ? (
         <Box flexDirection="column" marginTop={1} flexShrink={0}>
-          <Text color={theme.text}>Context</Text>
+          <Text bold color={theme.text}>
+            Context
+          </Text>
           <Text color={theme.textMuted}>{formatCount(contextTokens ?? 0)} tokens</Text>
           {contextPercent !== undefined ? (
             <Text color={theme.textMuted}>{contextPercent}% used</Text>

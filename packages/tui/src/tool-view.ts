@@ -24,7 +24,17 @@ const SALIENT_ARG_KEYS = [
 
 function salientArg(args: unknown): string | undefined {
   if (args === null || args === undefined) return undefined
-  if (typeof args === 'string') return args
+  // 事件流里的 arguments 常是**未解析的 JSON 串**——先解开再走标量挑选，
+  // 不然 read 会显示成 `→ Read {"path":"."}` 而不是 `→ Read .`。
+  if (typeof args === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(args)
+      if (typeof parsed === 'object' && parsed !== null) return salientArg(parsed)
+    } catch {
+      // 不是 JSON——就当普通文本参数。
+    }
+    return args
+  }
   if (typeof args === 'object' && !Array.isArray(args)) {
     const record = args as Record<string, unknown>
     for (const key of SALIENT_ARG_KEYS) {

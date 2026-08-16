@@ -55,8 +55,12 @@ export function Footer({ cwd, pendingApprovals = 0, connection = 'ready', model 
       </Text>
       <Box gap={2} flexShrink={0}>
         {pendingApprovals > 0 ? (
-          <Text color={theme.warning}>
-            △ {pendingApprovals} approval{pendingApprovals > 1 ? 's' : ''}
+          <Text>
+            <Text color={theme.warning}>△</Text>
+            <Text color={theme.text}>
+              {' '}
+              {pendingApprovals} approval{pendingApprovals > 1 ? 's' : ''}
+            </Text>
           </Text>
         ) : null}
         {connectionChip(connection)}

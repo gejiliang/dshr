@@ -91,53 +91,60 @@ export function SessionApp({
   const promptRows = 6
   const conversationRows = Math.max(1, rows - promptRows - 1 /* footer */ - 1 /* 保险 */)
 
+  const promptElement =
+    pending !== undefined ? (
+      <PendingPrompt
+        pending={pending}
+        onApprove={(outcome) => void state.answerApproval(sessionId, outcome)}
+        onAnswer={(answer) => void state.answerQuestion(sessionId, answer)}
+        onCancel={() => {
+          // state 没有「放弃交互」动词：直接在协议层回错误，host 会广播 resolved。
+          void client
+            .respond(pending.rpcId, {
+              ok: false,
+              error: { code: 'cancelled', message: 'dismissed by user', details: {} },
+            })
+            .catch(() => {})
+        }}
+      />
+    ) : (
+      <Composer
+        onSubmit={(text) => void state.prompt(sessionId, text)}
+        {...(preset !== undefined ? { preset } : {})}
+        {...(model !== undefined ? { model } : {})}
+        {...(provider !== undefined ? { provider } : {})}
+        width={contentWidth}
+        working={summary?.status === 'working'}
+        onInterrupt={() => void state.cancel(sessionId)}
+      />
+    )
+
   return (
-    <Box flexDirection="column" flexGrow={1}>
+    <Box flexDirection="column" flexGrow={1} minHeight={rows}>
       <Box flexDirection="row" flexGrow={1} minHeight={0}>
-        <Box
-          flexDirection="column"
-          flexGrow={1}
-          paddingLeft={2}
-          paddingRight={2}
-          paddingBottom={1}
-        >
+        <Box flexDirection="column" flexGrow={1} paddingLeft={2} paddingRight={2}>
           {empty ? (
-            <Box flexGrow={1} alignItems="center" justifyContent="center">
+            // 空会话 = 上游 home 路由：logo + 输入框作为一个整体垂直居中，
+            // 输入框不钉底（有对话后才钉底）。
+            <Box flexGrow={1} flexDirection="column" justifyContent="center" alignItems="center">
               <Logo />
+              <Box height={1} flexShrink={0} />
+              {promptElement}
             </Box>
           ) : (
-            <Conversation
-              view={view}
-              {...(preset !== undefined ? { preset } : {})}
-              contentWidth={contentWidth}
-              maxRows={conversationRows}
-            />
-          )}
-          {pending !== undefined ? (
-            <PendingPrompt
-              pending={pending}
-              onApprove={(outcome) => void state.answerApproval(sessionId, outcome)}
-              onAnswer={(answer) => void state.answerQuestion(sessionId, answer)}
-              onCancel={() => {
-                // state 没有「放弃交互」动词：直接在协议层回错误，host 会广播 resolved。
-                void client
-                  .respond(pending.rpcId, {
-                    ok: false,
-                    error: { code: 'cancelled', message: 'dismissed by user', details: {} },
-                  })
-                  .catch(() => {})
-              }}
-            />
-          ) : (
-            <Composer
-              onSubmit={(text) => void state.prompt(sessionId, text)}
-              {...(preset !== undefined ? { preset } : {})}
-              {...(model !== undefined ? { model } : {})}
-              {...(provider !== undefined ? { provider } : {})}
-              width={contentWidth}
-              working={summary?.status === 'working'}
-              onInterrupt={() => void state.cancel(sessionId)}
-            />
+            <>
+              <Conversation
+                view={view}
+                {...(preset !== undefined ? { preset } : {})}
+                contentWidth={contentWidth}
+                maxRows={conversationRows}
+              />
+              {/* 对话顶格、输入框钉在底部（上游 scrollbox flexGrow 把 prompt 压到底）；
+                  之间留一行空（上游消息区 paddingBottom=1）。 */}
+              <Box flexGrow={1} />
+              <Box height={1} flexShrink={0} />
+              {promptElement}
+            </>
           )}
         </Box>
         {sidebarVisible ? (
