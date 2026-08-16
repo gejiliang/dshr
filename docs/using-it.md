@@ -6,19 +6,13 @@
 
 ```sh
 cd ~/Workspace/idiotStudio/dshr
-pnpm install
-npx tsc --build
+pnpm install && npx tsc --build
+sh tools/install.sh
 ```
 
-`dshr` 变成能敲的命令（二选一）：
-
-```sh
-# A. 软链到你 PATH 里的某处
-ln -sf "$PWD/packages/cli/lib/main.js" ~/bin/dshr
-
-# B. 或者加个别名
-echo "alias dshr='node $PWD/packages/cli/lib/main.js'" >> ~/.zshrc
-```
+装的是一层薄包装而不是软链，因为它要多做一件事：**自动把凭据带进环境**。
+dsh 的 `apiKeyEnv` 是引用，值必须在环境里；不这么做的话每开一个新终端
+都得先 `source` 一次，那就不叫能用了。
 
 改了源码要重新 `npx tsc --build`——命令跑的是构建产物，不是源码。
 
@@ -44,11 +38,17 @@ agent-default-model:
   model: <模型 id>
 ```
 
-然后在 shell 里给出那个变量（放进 `~/.zshrc` 或你自己的 secrets 文件）：
+然后把那个变量的来源写进 **`~/.dsh/env.sh`**——`tools/install.sh` 装的包装脚本
+每次都会 source 它，所以配一次就够，不用动 `~/.zshrc`：
 
 ```sh
-export QP_API_KEY=...
+# ~/.dsh/env.sh
+# 别在这里写死密钥：从你已有的凭据源现取（下面这行是从 pi 的配置里取）。
+QP_API_KEY="$(node -p "require(process.env.HOME + '/.pi/agent/models.json').providers['quota-proxy'].apiKey" 2>/dev/null)"
+export QP_API_KEY
 ```
+
+`dshr` 拉起的 host 是子进程、会继承环境，所以 `dshr` 和 `dshr server` 都覆盖到了。
 
 三个坑，都是踩出来的：
 
