@@ -73,6 +73,13 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
   const workspaceId = await pickWorkspace(state)
   const components = buildShellComponents({ state: effectiveState, client })
 
+  // ⚠️ 终端尺寸拿不到时给一个体面的默认值。
+  // ink 直接读 `process.stdout.columns/rows` 决定布局宽度，而在**尺寸未知的 tty**
+  // 下（`script`、部分 CI、某些多路复用器）拿到的是 **0**——注意是 0 不是 undefined，
+  // 所以 `?? 80` 这种写法挡不住，整个界面会塌成一列、每个字一行。实测过。
+  if (!(process.stdout.columns > 0)) process.stdout.columns = 80
+  if (!(process.stdout.rows > 0)) process.stdout.rows = 24
+
   // exitOnCtrlC: false —— Ctrl-C 由我们自己的 SIGINT 处理走统一的 shutdown 路径。
   const app = render(h(Shell, { state: effectiveState, components, initialWorkspaceId: workspaceId }), {
     exitOnCtrlC: false,

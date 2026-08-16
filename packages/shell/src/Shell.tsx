@@ -278,8 +278,11 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
       }
       case 'focusPane': {
         if (activeTab?.root == null || activePaneId === null) break
-        const width = stdout?.columns ?? 80
-        const height = (stdout?.rows ?? 24) - 2 // 去掉 tab bar 与状态行
+        // 尺寸未知的 tty 给的是 **0** 而不是 undefined，`??` 挡不住——用 > 0 判。
+        const cols = stdout?.columns
+        const rws = stdout?.rows
+        const width = cols !== undefined && cols > 0 ? cols : 80
+        const height = (rws !== undefined && rws > 0 ? rws : 24) - 2 // 去掉 tab bar 与状态行
         const next = focusDirection(activeTab.root, activePaneId, a.direction, { x: 0, y: 0, width, height })
         mutateActiveTab((t) => ({ ...t, focusedPaneId: next }))
         break
