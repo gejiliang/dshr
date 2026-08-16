@@ -113,14 +113,27 @@ above the tab bar. Details in [`docs/integration.md`](docs/integration.md).
 
 ## Development
 
-You do not need an API key. `@deepseek-ai/dsh-llm-mock-server` is a scriptable
-OpenAI-compatible endpoint — point a dsh provider at it and the whole stack runs for real
-with only the model faked:
+**Install and build first — the tools import the built packages, not the sources:**
 
 ```sh
+pnpm install
+npx tsc --build
+```
+
+You do not need an API key. `@deepseek-ai/dsh-llm-mock-server` is a scriptable
+OpenAI-compatible endpoint — point a dsh provider at it and the whole stack runs for real
+with only the model faked. Three terminals, or background the first two:
+
+```sh
+# 1) the fake model
 node tools/mock-llm.mjs --port 8100 --text "hello from the mock"
+
+# 2) a dsh host wired to it — settings.yaml is in docs/profile.md
 MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome npx @deepseek-ai/dsh@0.1.0-rc.6 web --port 39081
-node tools/e2e.mjs http://127.0.0.1:39081
+
+# 3) drive it
+node tools/e2e.mjs http://127.0.0.1:39081     # prints the streamed answer
+node tools/demo-live.mjs                       # prints the assembled TUI frame
 ```
 
 The `settings.yaml` this needs, and the one trap in it, are in
@@ -136,6 +149,9 @@ The `settings.yaml` this needs, and the one trap in it, are in
 
 Run the tests with `npx tsc --build && node --test packages/*/test/*.test.ts`. Tests that
 need a host skip themselves when one is not reachable.
+
+> The suite imports each package's **built** output (`lib/`), because Node's type stripping
+> does not map a `.js` specifier back to a `.ts` source. Build before testing, always.
 
 ## Security
 

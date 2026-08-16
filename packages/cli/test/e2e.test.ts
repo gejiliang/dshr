@@ -12,6 +12,7 @@
  * host 不可达时整条 skip——别人在别的机器上跑测试不该红。
  */
 import assert from 'node:assert/strict'
+import { basename } from 'node:path'
 import test from 'node:test'
 import { createElement as h } from 'react'
 import { render } from 'ink-testing-library'
@@ -63,13 +64,27 @@ test('端到端：Shell 连真 host，提交一句话，流式回答出现在渲
     return
   }
 
+  // ⚠️ 清理必须在**任何可能抛错的语句之前**注册。
+  // 否则中途一抛，client 的 socket 和 ink 的 render 都还开着，进程退不出，
+  // node:test 于是永远打不出失败详情——看起来像卡死，实际是错误被藏住了。踩过。
   const client = createDshrClient({ baseUrl: BASE_URL })
+  let app: ReturnType<typeof render> | undefined
+  let state: ReturnType<typeof createState> | undefined
+  t.after(async () => {
+    app?.unmount()
+    await state?.dispose()
+    await client.close()
+  })
+
   await client.connect()
-  const state = createState({ client })
+  state = createState({ client })
+  const st = state
 
   // 工作区要先存在——Shell 把新会话挂到它下面。
+  // 标题按路径派生：`createWorkspace` 对已有路径是幂等的（不改标题），
+  // 但**新建**时标题在 host 上是全局唯一的，写死一个名字会跟别处的工作区撞。
   const cwd = process.cwd()
-  const workspaceId = await state.createWorkspace(cwd, 'dshr-e2e')
+  const workspaceId = await st.createWorkspace(cwd, `dshr-e2e ${basename(cwd)}`)
 
   // ⚠️ 必须盯住 **Shell 自己创建的那个会话**。
   // host 上可能已经有别的会话（开发机上通常有一堆），拿 `sessions.keys()[0]`
@@ -80,40 +95,39 @@ test('端到端：Shell 连真 host，提交一句话，流式回答出现在渲
   const created: SessionId[] = []
   const spied: DshrState = {
     get sessions() {
-      return state.sessions
+      return st.sessions
     },
     get workspaces() {
-      return state.workspaces
+      return st.workspaces
     },
-    subscribe: (listener) => state.subscribe(listener),
-    conversation: (id) => state.conversation(id),
-    projections: (id) => state.projections(id),
-    createWorkspace: (path, title) => state.createWorkspace(path, title),
+    subscribe: (listener) => st.subscribe(listener),
+    conversation: (id) => st.conversation(id),
+    projections: (id) => st.projections(id),
+    createWorkspace: (path, title) => st.createWorkspace(path, title),
     createSession: async (input) => {
-      const id = await state.createSession(input)
+      const id = await st.createSession(input)
       created.push(id)
       return id
     },
-    prompt: (id, text) => state.prompt(id, text),
-    cancel: (id) => state.cancel(id),
-    answerApproval: (id, outcome) => state.answerApproval(id, outcome),
-    answerQuestion: (id, answers) => state.answerQuestion(id, answers),
-    dispose: () => state.dispose(),
+    prompt: (id, text) => st.prompt(id, text),
+    cancel: (id) => st.cancel(id),
+    answerApproval: (id, outcome) => st.answerApproval(id, outcome),
+    answerQuestion: (id, answers) => st.answerQuestion(id, answers),
+    dispose: () => st.dispose(),
   }
 
   const components = buildShellComponents({ state: spied, client })
-  const app = render(
+  app = render(
     h(Shell, { state: spied, components, initialWorkspaceId: String(workspaceId), cwd }),
   )
+  const ui = app
 
-  t.after(async () => {
-    app.unmount()
-    await state.dispose()
-    await client.close()
-  })
-
-  // 1) 侧栏先出现工作区。
-  await waitForFrame(app.lastFrame, (f) => f.includes('dshr-e2e'))
+  // 1) 侧栏先出现工作区。用工作区的**实际标题**（可能是已有工作区的旧标题），
+  //    不要用我们请求的那个——`createWorkspace` 命中已有路径时不会改标题。
+  const workspaceTitle =
+    st.workspaces.find((w) => String(w.workspaceId) === String(workspaceId))?.title ??
+    basename(cwd)
+  await waitForFrame(ui.lastFrame, (f) => f.includes(workspaceTitle), 30_000)
 
   // 2) Shell 启动会给第一个 pane 开一个会话——那是一次 RPC，要等它回来。
   await waitForFrame(
@@ -125,7 +139,7 @@ test('端到端：Shell 连真 host，提交一句话，流式回答出现在渲
   const sessionId = created[0]!
 
   // 3) 先把会话视图打开——TUI 里 pane 本来就是开着的，流式增量要有人在听。
-  const conversation = state.conversation(sessionId)
+  const conversation = st.conversation(sessionId)
   const assistantText = () =>
     conversation.items
       .filter((item) => item.kind === 'assistant')
@@ -133,11 +147,11 @@ test('端到端：Shell 连真 host，提交一句话，流式回答出现在渲
       .join('')
 
   // 4) 提交一句话。走 state.prompt——与 Composer 的 onSubmit 是同一条路径。
-  await state.prompt(sessionId, 'Reply with exactly one short sentence.')
+  await st.prompt(sessionId, 'Reply with exactly one short sentence.')
 
   // 5) 会话应该先转成 working。
   await waitForFrame(
-    () => state.sessions.get(sessionId)?.status ?? '',
+    () => st.sessions.get(sessionId)?.status ?? '',
     (s) => s === 'working',
     30_000,
   )
@@ -148,12 +162,12 @@ test('端到端：Shell 连真 host，提交一句话，流式回答出现在渲
   await waitForFrame(assistantText, (t) => /backoff/i.test(t), 30_000)
 
   // 7) 而且要真的出现在**渲染帧**里，不只是 state 里。
-  const frame = await waitForFrame(app.lastFrame, (f) => /backoff/i.test(f), 30_000)
+  const frame = await waitForFrame(ui.lastFrame, (f) => /backoff/i.test(f), 30_000)
   assert.match(frame, /backoff/i)
 
   // 8) 一轮结束后回到 idle。
   await waitForFrame(
-    () => state.sessions.get(sessionId)?.status ?? '',
+    () => st.sessions.get(sessionId)?.status ?? '',
     (s) => s === 'idle',
     30_000,
   )

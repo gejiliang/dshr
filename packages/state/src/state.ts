@@ -124,12 +124,21 @@ class DshrStateImpl implements DshrState {
     return out
   }
 
+  /**
+   * 按路径拿工作区，没有就建。**幂等**——这一点是踩出来的。
+   *
+   * host 对同一路径重复 `workspace.create` 会**返回已有工作区且不改它的标题**
+   * （`created: false`）。所以只有**真的新建出来**时才去 rename：
+   * 无条件 rename 会在第二次调用时撞上别处那个同名工作区，
+   * 报 `workspace-name-conflict` 让整个调用失败——而调用方要的工作区其实好端端地存在。
+   */
   async createWorkspace(path: string, title?: string): Promise<WorkspaceId> {
     const res = await this.client.call('workspace.create', { path })
     if (!res.ok) throw rpcFailure('workspace.create', res.error)
     const workspace = res.value.workspace
     this.upsertWorkspace(workspace)
-    if (title !== undefined) {
+    const isNew = res.value.created
+    if (isNew && title !== undefined && title !== workspace.title) {
       const renamed = await this.client.call('workspace.rename', { workspaceId: workspace.workspaceId, title })
       if (!renamed.ok) throw rpcFailure('workspace.rename', renamed.error)
       this.upsertWorkspace(renamed.value.workspace)

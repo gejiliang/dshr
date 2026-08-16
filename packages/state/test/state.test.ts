@@ -314,3 +314,47 @@ test('generation 变化：per-session 对话缓存作废重取，脏的流式拼
 
   await state.dispose()
 })
+
+test('createWorkspace 幂等：命中已有路径不 rename（否则会撞别处的同名工作区）', async () => {
+  const client = new FakeClient()
+  const state = await readyState(client)
+
+  // host 的契约：对同一路径重复 create 返回已有工作区、**不改标题**，created=false。
+  const existing = { workspaceId: 'ws-1', path: '/repo', title: 'repo', sessionIds: [] }
+  client.onCall('workspace.create', () => ok({ workspace: existing, created: false }))
+  client.onCall('workspace.rename', () => {
+    throw new Error('不该走到 rename')
+  })
+
+  const id = await state.createWorkspace('/repo', '一个别处已经占用的名字')
+  assert.equal(String(id), 'ws-1')
+  assert.equal(
+    client.calls.filter((c) => c.method === 'workspace.rename').length,
+    0,
+    '命中已有工作区时不应发 workspace.rename',
+  )
+
+  await state.dispose()
+})
+
+test('createWorkspace 只在新建且标题不同时才 rename', async () => {
+  const client = new FakeClient()
+  const state = await readyState(client)
+
+  const fresh = { workspaceId: 'ws-2', path: '/new', title: 'new', sessionIds: [] }
+  client.onCall('workspace.create', () => ok({ workspace: fresh, created: true }))
+  client.onCall('workspace.rename', () => ok({ workspace: { ...fresh, title: '我要的标题' } }))
+
+  await state.createWorkspace('/new', '我要的标题')
+  assert.equal(client.calls.filter((c) => c.method === 'workspace.rename').length, 1)
+
+  client.calls.length = 0
+  await state.createWorkspace('/new', 'new')
+  assert.equal(
+    client.calls.filter((c) => c.method === 'workspace.rename').length,
+    0,
+    '标题已经一致时不应 rename',
+  )
+
+  await state.dispose()
+})
