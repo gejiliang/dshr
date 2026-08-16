@@ -14,9 +14,6 @@ importers:
       '@dshr/protocol':
         specifier: workspace:*
         version: link:packages/protocol
-      '@dshr/shell':
-        specifier: workspace:*
-        version: link:packages/shell
       '@dshr/state':
         specifier: workspace:*
         version: link:packages/state
@@ -69,9 +66,6 @@ importers:
       '@dshr/protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@dshr/shell':
-        specifier: workspace:*
-        version: link:../shell
       '@dshr/state':
         specifier: workspace:*
         version: link:../state
@@ -110,28 +104,6 @@ importers:
       '@types/ws':
         specifier: ^8.5.13
         version: 8.18.1
-
-  packages/shell:
-    dependencies:
-      '@dshr/state':
-        specifier: workspace:*
-        version: link:../state
-      '@dshr/tui':
-        specifier: workspace:*
-        version: link:../tui
-      ink:
-        specifier: ^6.0.0
-        version: 6.8.0(@types/react@19.2.18)(react@19.2.8)
-      react:
-        specifier: ^19.0.0
-        version: 19.2.8
-    devDependencies:
-      '@types/react':
-        specifier: ^19.0.0
-        version: 19.2.18
-      ink-testing-library:
-        specifier: ^4.0.0
-        version: 4.0.0(@types/react@19.2.18)
 
   packages/state:
     dependencies:

@@ -5,9 +5,21 @@
 
 ## 一句话
 
-**dshr 是 dsh 的第三个 surface：一个终端 client + herdr 形状的壳。**
-服务端复用 dsh 自己的 host 平面（不重写），TUI 复用 dsh 的线协议（不 fork），
-herdr 的形（工作区 / tab / pane / 活跃 agent 侧栏）由 dshr 自己实现。
+**dshr 是 dsh 的第三个 surface：一个终端会话的 TUI，跑在 herdr 的 pane 里。**
+服务端复用 dsh 自己的 host 平面（不重写），协议复用 dsh 的线协议（不 fork），
+**工作区 / tab / pane / 活跃 agent 侧栏全部由 herdr 提供**（不复刻）。
+
+> ⚠️ **曾经的方向性错误**：最初做了一个 `@dshr/shell` 把 herdr 的整套外壳
+> （tab、pane、侧栏、键位、覆盖层）复刻了一遍——那是在 herdr 旁边造一个更差的 herdr。
+> 2026-08-16 整包删除。要看它长什么样：`git log -- packages/shell`。
+>
+> 正确的形态是：**一个 herdr pane = 一个 dshr 进程 = 一个 dsh 会话**。
+> 想让每个新 pane 都是 dsh 会话，改 herdr 自己的配置即可：
+> ```toml
+> [terminal]
+> default_shell = "dshr"
+> ```
+> 再加一个 herdr 插件把 agent 状态报上去，侧栏就认得它了（见下）。
 
 ```
 ┌─ dshr TUI (Ink) ────────────────────────────────┐
@@ -33,8 +45,10 @@ herdr 的形（工作区 / tab / pane / 活跃 agent 侧栏）由 dshr 自己实
    上游是 developer preview，fork 的长期成本是跟它 diverge。
    每加一处能力先问：这能不能做成一个插件行、一个 host 服务、一个 client 包？
    能就不碰上游。确实缺原语时才考虑，且要留下证据。
-2. **不依赖 herdr。** dshr 借 herdr 的**产品形状**，不借它的代码，也不做它的插件。
-   两者是同类替代品，不是上下游。（herdr 是外部闭源依赖，herdgent 才是它的插件。）
+2. **不复刻 herdr，跑在它里面。** 工作区、tab、pane、活跃 agent 侧栏都是 herdr 的活，
+   dshr 一律不做——**做了就是在 herdr 旁边造一个更差的 herdr**（试过，已删）。
+   dshr 只负责一个 pane 内部的那个会话，另外出一个 herdr 插件把状态报上去。
+   这条原来写的是「不依赖 herdr、两者是同类替代品」，方向错了，2026-08-16 改正。
 3. **编排只提供动词，不提供语义。** 代码里出现 `Role` / `Workflow` / `Protocol` / `Template`
    这类**类型定义**就是越界；prompt 和 skill 里写满角色分工是正常的。
    这条是从 herdgent 搬过来的，理由见它的 AGENTS.md：SPQR v2 的 13k 行死在把语义固化成了类型。
@@ -47,11 +61,10 @@ herdr 的形（工作区 / tab / pane / 活跃 agent 侧栏）由 dshr 自己实
 |---|---|---|
 | `@dshr/protocol` | dsh `/api` 线协议 carrier | 只依赖 `@deepseek-ai/dsh-host-apiproxy`（类型）与 `ws` |
 | `@dshr/state` | headless 客户端模型：会话、工作区、状态、对话 | `@dshr/protocol` |
-| `@dshr/tui` | 会话视图与输入框（opencode 风格） | `@dshr/state`, ink |
-| `@dshr/shell` | tab / pane / 侧栏 / 状态行 | `@dshr/state`, `@dshr/tui`, ink |
-| `@dshr/orchestrate` | 编排动词（dsh 工具插件） | dsh 插件 API |
+| `@dshr/tui` | **会话视图与输入框——照搬 opencode**（判据：`opencode-reference.md` 的实测截屏） | `@dshr/state`, ink |
+| `@dshr/orchestrate` | 编排动词。**目前没有任何入口调用它**，见文末 | `@dshr/protocol` |
 | `@dshr/bundle` | dshr profile bundle（`cordis.patch.yml` + startup provider） | — |
-| `dshr` (`packages/cli`) | `dshr` 可执行文件 | 以上全部 |
+| `dshr` (`packages/cli`) | `dshr` 可执行文件：一个 pane 一个会话的全屏 TUI | protocol / state / tui |
 
 ### `@dshr/protocol`
 
@@ -180,13 +193,27 @@ client 在该会话第一次 `host/session-status{running:true}` 时把它翻掉
 `ToolEventView` 是 host 算好的渲染意图（`for: 'call' | 'result'`），**优先用它**；
 没有 view 时才回退到通用 JSON 卡片。
 
-### `@dshr/shell` —— herdr 的形
+### 与 herdr 的关系：跑在它的 pane 里，并把状态报给它
 
-- **一个 pane = 一个 dsh session。** 这是 dshr 与 herdr 的根本区别：
-  herdr 的 pane 是任意终端，dshr 的 pane 是一个有身份、有状态、可寻址的 agent 会话。
-- tab 承载一组 pane；工作区（`workspace`）承载一组 tab。
-- 侧栏列工作区与活跃 agent，带实时 idle/working/blocked。
-- **新建 tab 或 pane 默认就开一个 dsh 会话**（GG 的原始要求）。
+**一个 herdr pane = 一个 dshr 进程 = 一个 dsh 会话。**
+tab、pane、工作区、侧栏由 herdr 提供；`[terminal] default_shell = "dshr"`
+就让每个新 pane 直接是一个 dsh 会话。
+
+dshr 这边只需要把 agent 状态报上去，herdr 的侧栏就把它当一等公民 agent：
+
+```sh
+herdr pane report-agent --source <id> --agent dsh \
+  --state idle|working|blocked|unknown [--message <text>] <PANE_ID>
+```
+
+**dshr 不需要 watcher，也不需要解析终端画面**——这是它相对
+`herdr-openclaw` 那类插件的结构性优势：
+
+- pane 身份直接来自环境变量（herdr 给每个 pane 注入 `HERDR_PANE_ID` / `HERDR_SOCKET_PATH`，实测）
+- agent 状态来自 host 的**权威事件**（`host/session-status`、未决的 approval/question 帧），
+  不是从画面上猜的，上游改了状态行也不会断
+
+所以上报逻辑住在 dshr 进程内部，状态变化时**当场**报一次；插件清单只负责让 herdr 认识它。
 
 ### `@dshr/orchestrate`
 
@@ -200,14 +227,18 @@ client 在该会话第一次 `host/session-status{running:true}` 时把它翻掉
 ## 运行形态
 
 ```sh
-dshr                      # 起（或连上）本机常驻 host，打开 TUI
-dshr --port 39080         # 指定 host 端口
+dshr                      # 在当前目录开一个新会话，全屏 TUI（host 没起就自己拉）
+dshr --resume <sessionId> # 打开某个已存在的会话
 dshr --connect <url>      # attach 到已在跑的 host
-dshr --resume <sessionId> # 直接打开某个会话
+dshr --port 39080         # 指定 host 端口
 dshr server               # 只起 host，不开 TUI
 ```
 
-会话强制落盘，所以 detach / attach / `--resume` 都是 host 那边天然就有的能力。
+**通常你不会手敲这些**——把 herdr 的 `[terminal] default_shell` 设成 `dshr`，
+每开一个 pane 就是一个 dsh 会话，这正是最初想要的效果。
+
+会话强制落盘，所以关掉 pane 只是 detach；`dshr --resume <id>` 随时接回来。
+会话按 **cwd** 归到 dsh 的工作区下，而 herdr 的 pane 本来就带 cwd——两边天然对齐。
 
 ## 安全边界（不要越过）
 

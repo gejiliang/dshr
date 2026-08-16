@@ -24,8 +24,7 @@ import { render } from 'ink-testing-library'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 import { createDshrClient } from '@dshr/protocol'
 import { createState } from '@dshr/state'
-import { Shell } from '@dshr/shell'
-import { buildShellComponents } from 'dshr'
+import { SessionApp } from 'dshr'
 
 const ANSWER_MARK = 'verify-marker-7391'
 const results = []
@@ -125,36 +124,13 @@ try {
   }
   note('C  createWorkspace 对同一路径幂等（第二次不炸、返回同一个）', idempotent, idemDetail)
 
-  // ── 装配整个 Shell，盯住它自己开的那个会话 ──────────────────────────
-  const created = []
-  const spied = {
-    get sessions() { return state.sessions },
-    get workspaces() { return state.workspaces },
-    subscribe: (l) => state.subscribe(l),
-    conversation: (id) => state.conversation(id),
-    projections: (id) => state.projections(id),
-    createWorkspace: (p, t) => state.createWorkspace(p, t),
-    createSession: async (i) => { const id = await state.createSession(i); created.push(id); return id },
-    prompt: (id, t) => state.prompt(id, t),
-    cancel: (id) => state.cancel(id),
-    answerApproval: (id, o) => state.answerApproval(id, o),
-    answerQuestion: (id, a) => state.answerQuestion(id, a),
-    dispose: () => state.dispose(),
-  }
-  app = render(
-    h(Shell, {
-      state: spied,
-      components: buildShellComponents({ state: spied, client }),
-      initialWorkspaceId: String(ws1),
-      cwd,
-    }),
-  )
+  // ── 开一个会话并把它的 TUI 渲染出来 ─────────────────────────────────
+  // dshr 就是「一个 pane 一个会话」，工作区/tab/pane 是 herdr 的活，这里没有那一层。
+  const sessionId = await state.createSession({ cwd, workspaceId: ws1 })
+  note('   在工作区下开出一个会话', typeof sessionId === 'string' && sessionId.length > 0)
 
-  const gotSession = await until(() => created.length > 0, 30_000, 'Shell 开出第一个会话')
-  note('   Shell 启动即为第一个 pane 开一个会话', gotSession)
-  if (!gotSession) throw new Error('没有会话，后面的断言无从谈起')
+  app = render(h(SessionApp, { state, client, sessionId, model: 'mock-model' }))
 
-  const sessionId = created[0]
   const conv = state.conversation(sessionId)
   const answer = () =>
     conv.items.filter((i) => i.kind === 'assistant').map((i) => i.text).join('')

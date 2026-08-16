@@ -6,10 +6,5 @@
     "jsx": "react-jsx"
   },
   "include": ["src/**/*"],
-  "references": [
-    { "path": "../protocol" },
-    { "path": "../state" },
-    { "path": "../tui" },
-    { "path": "../shell" }
-  ]
+  "references": [{ "path": "../protocol" }, { "path": "../state" }, { "path": "../tui" }]
 }

@@ -1,44 +1,52 @@
 #!/usr/bin/env node
 /**
- * `dshr` 可执行文件——整个项目的收口。
+ * `dshr` 可执行文件：**一个 pane 里的一个 dsh 会话**。
  *
- * 装配顺序（docs/integration.md）：
+ * 工作区、tab、pane、活跃 agent 侧栏——**全是 herdr 的活**，dshr 跑在它的 pane 里。
+ * 曾经有过一个 `@dshr/shell` 把那一整套复刻了一遍，是方向性错误，已删；
+ * 要看它长什么样：`git log -- packages/shell`。
+ *
+ * 装配顺序：
  *   解析旗标 → createDshrClient({ baseUrl }) → client.connect()
- *     → createState({ client })
- *     → render(<Shell state components={{ Conversation, Composer, PendingPrompt }} />)
+ *     → createState({ client }) → 定下 sessionId → render(<SessionApp/>)
  */
 import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { createDshrClient } from '@dshr/protocol'
-import { Shell } from '@dshr/shell'
 import { createState, type DshrState, type SessionId } from '@dshr/state'
 import { render } from 'ink'
 import { createElement as h } from 'react'
-import { buildShellComponents } from './assemble.js'
 import { FlagError, parseFlags, USAGE, type ParsedFlags } from './flags.js'
 import { ensureHost, runServer, type HostHandle } from './host.js'
-import { withResumeSession } from './resume.js'
+import { SessionApp } from './session-app.js'
 
 /** 退出时留给「断连接、关自己拉起的 host」的上限，超了就直接走。 */
 const SHUTDOWN_BUDGET_MS = 1500
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 /**
- * 选 Shell 落在哪个工作区：等 state 基线化出工作区列表（最多 3s），
- * 还没有就在当前目录建一个。
+ * 定下这个 pane 要显示哪个会话。
+ *
+ * 有 `--resume` 就用它（先读一页历史确认存在，读不到直接报错退出，
+ * 不要开一个空界面让人以为连上了）；否则按 **cwd** 取工作区、在其下新建一个会话。
+ * 用 cwd 而不是「第一个工作区」是因为 herdr 的 pane 本来就带着 cwd，
+ * 而 dsh 的工作区也是按路径去重的——两边天然对齐。
  */
-async function pickWorkspace(state: DshrState): Promise<string> {
-  const deadline = Date.now() + 3_000
-  while (Date.now() < deadline) {
-    const first = state.workspaces[0]
-    if (first !== undefined) return String(first.workspaceId)
-    await sleep(50)
+async function resolveSession(
+  state: DshrState,
+  flags: Extract<ParsedFlags, { mode: 'tui' }>,
+): Promise<SessionId | { error: string }> {
+  if (flags.resume !== undefined) {
+    const sessionId = flags.resume as SessionId
+    const history = await state.conversation(sessionId).loadOlder().then(
+      () => null,
+      (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    )
+    if (history !== null) return { error: `--resume: 会话 ${flags.resume} 读不到: ${history}` }
+    return sessionId
   }
-  const created = await state.createWorkspace(process.cwd())
-  return String(created)
+  const cwd = process.cwd()
+  const workspaceId = await state.createWorkspace(cwd)
+  return state.createSession({ cwd, workspaceId })
 }
 
 async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<number> {
@@ -59,22 +67,17 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
 
   const state = createState({ client })
 
-  let effectiveState: DshrState = state
-  if (flags.resume !== undefined) {
-    const sessionId = flags.resume as SessionId
-    const history = await client.call('session.history', { sessionId })
-    if (!history.ok) {
-      process.stderr.write(`--resume: 会话 ${flags.resume} 读不到: ${history.error.code}: ${history.error.message}\n`)
-      await state.dispose()
-      await client.close()
-      await host.close()
-      return 1
-    }
-    effectiveState = withResumeSession(state, sessionId)
+  const resolved = await resolveSession(state, flags)
+  if (typeof resolved === 'object') {
+    process.stderr.write(`${resolved.error}\n`)
+    await state.dispose()
+    await client.close()
+    await host.close()
+    return 1
   }
-
-  const workspaceId = await pickWorkspace(state)
-  const components = buildShellComponents({ state: effectiveState, client })
+  const sessionId = resolved
+  const described = await client.call('host.describe', {})
+  const model = described.ok ? described.value.model : undefined
 
   // ⚠️ 终端尺寸拿不到时给一个体面的默认值。
   // ink 直接读 `process.stdout.columns/rows` 决定布局宽度，而在**尺寸未知的 tty**
@@ -92,9 +95,10 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
   //
   // 交给 ink：它认得 0x03，会 unmount 并让 `waitUntilExit()` 返回，
   // 下面那段收尾照样跑，统一的 shutdown 路径一点没丢。
-  const app = render(h(Shell, { state: effectiveState, components, initialWorkspaceId: workspaceId }), {
-    exitOnCtrlC: true,
-  })
+  const app = render(
+    h(SessionApp, { state, client, sessionId, ...(model !== undefined ? { model } : {}) }),
+    { exitOnCtrlC: true },
+  )
 
   let shuttingDown = false
   const shutdown = async (code: number): Promise<void> => {

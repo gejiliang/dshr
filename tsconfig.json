@@ -4,7 +4,6 @@
     { "path": "packages/protocol" },
     { "path": "packages/state" },
     { "path": "packages/tui" },
-    { "path": "packages/shell" },
     { "path": "packages/orchestrate" },
     { "path": "packages/cli" }
   ]

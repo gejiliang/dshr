@@ -11,5 +11,4 @@ export {
   type RunServerOptions,
   type SpawnHost,
 } from './host.js'
-export { buildShellComponents, type AssembleOptions } from './assemble.js'
-export { withResumeSession } from './resume.js'
+export { SessionApp, type SessionAppProps } from './session-app.js'
