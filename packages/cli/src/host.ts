@@ -6,7 +6,7 @@
  * 那可能有别人正在用。
  */
 import { spawn, type ChildProcess } from 'node:child_process'
-import { createWriteStream, type WriteStream } from 'node:fs'
+import { closeSync, openSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -52,13 +52,29 @@ function dshCommand(port: number): string[] {
   return [...base, 'web', '--port', String(port)]
 }
 
-/** 默认拉起：stdout/stderr 重定向到日志文件，绝不污染 TUI 画面。 */
+/**
+ * 默认拉起：stdout/stderr 重定向到日志文件，绝不污染 TUI 画面。
+ *
+ * ⚠️ 这里必须用**数字 fd**，不能用 `createWriteStream()` 的返回值。
+ * `WriteStream` 是异步打开的，刚创建时 `fd` 还是 `null`，直接塞进 `stdio` 会当场抛
+ * `ERR_INVALID_ARG_VALUE: The argument 'stdio' is invalid`——于是 `dshr` 裸跑
+ * （不带 `--connect`、要自己拉 host 的那条主路径）**一启动就崩**。踩过；
+ * 所有离屏渲染的测试都碰不到这里，因为它们从不拉 host。
+ */
 export const defaultSpawnHost: SpawnHost = (port, logPath) => {
   const [cmd, ...args] = dshCommand(port)
   if (cmd === undefined) throw new Error('DSHR_DSH_COMMAND 为空')
-  const log: WriteStream = createWriteStream(logPath, { flags: 'a' })
-  const child = spawn(cmd, args, { stdio: ['ignore', log, log] })
-  child.on('close', () => log.end())
+  const fd = openSync(logPath, 'a')
+  const child = spawn(cmd, args, { stdio: ['ignore', fd, fd] })
+  const closeLog = (): void => {
+    try {
+      closeSync(fd)
+    } catch {
+      // 已经关了就算了
+    }
+  }
+  child.on('close', closeLog)
+  child.on('error', closeLog)
   return child
 }
 

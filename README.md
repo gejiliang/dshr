@@ -162,6 +162,24 @@ exist between packages. `session.create` rejects `workspaceId` and `cwd` togethe
 ink's `<Static>` is document-level — so the conversation escaped its pane and rendered
 above the tab bar. Details in [`docs/integration.md`](docs/integration.md).
 
+## Using it
+
+Setup, pointing it at a real model, the keys, and the recommended daily shape
+(`dshr server` running detached, `dshr` attaching to it) are in
+[`docs/using-it.md`](docs/using-it.md).
+
+```sh
+pnpm install && npx tsc --build
+ln -sf "$PWD/packages/cli/lib/main.js" ~/bin/dshr    # or alias it
+
+dshr server &   # persistent host; sessions survive closing the TUI
+dshr            # attach
+```
+
+`dshr` on its own brings up a host if one isn't already running. It needs a provider in
+`~/.dsh/settings.yaml` before a prompt will answer — dshr is a surface over dsh, it does
+not own the model configuration.
+
 ## Requirements
 
 - Node ≥ 22 (`fetch` and `WebSocket` are built in)
