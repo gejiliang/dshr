@@ -13,12 +13,15 @@
       "default": "./lib/index.js"
     }
   },
-  "files": ["lib"],
+  "files": [
+    "lib"
+  ],
   "scripts": {
     "build": "tsc --build",
     "test": "node --test test/*.test.ts"
   },
   "dependencies": {
+    "@dshr/herdr": "workspace:*",
     "@dshr/protocol": "workspace:*",
     "@dshr/state": "workspace:*",
     "@dshr/tui": "workspace:*",

@@ -6,5 +6,5 @@
     "jsx": "react-jsx"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../protocol" }, { "path": "../state" }, { "path": "../tui" }]
+  "references": [{ "path": "../herdr" }, { "path": "../protocol" }, { "path": "../state" }, { "path": "../tui" }]
 }

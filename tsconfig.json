@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/protocol" },
+    { "path": "packages/herdr" },
     { "path": "packages/state" },
     { "path": "packages/tui" },
     { "path": "packages/orchestrate" },

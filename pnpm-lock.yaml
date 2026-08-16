@@ -11,6 +11,9 @@ importers:
       '@deepseek-ai/dsh-llm-mock-server':
         specifier: 0.1.0-rc.6
         version: 0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1))
+      '@dshr/herdr':
+        specifier: workspace:*
+        version: link:packages/herdr
       '@dshr/protocol':
         specifier: workspace:*
         version: link:packages/protocol
@@ -63,6 +66,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@dshr/herdr':
+        specifier: workspace:*
+        version: link:../herdr
       '@dshr/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -85,6 +91,12 @@ importers:
       ink-testing-library:
         specifier: ^4.0.0
         version: 4.0.0(@types/react@19.2.18)
+
+  packages/herdr:
+    dependencies:
+      '@dshr/state':
+        specifier: workspace:*
+        version: link:../state
 
   packages/orchestrate:
     dependencies:

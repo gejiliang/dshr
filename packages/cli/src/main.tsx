@@ -12,6 +12,7 @@
  */
 import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
+import { startReporter } from '@dshr/herdr'
 import { createDshrClient } from '@dshr/protocol'
 import { createState, type DshrState, type SessionId } from '@dshr/state'
 import { render } from 'ink'
@@ -95,6 +96,10 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
   //
   // 交给 ink：它认得 0x03，会 unmount 并让 `waitUntilExit()` 返回，
   // 下面那段收尾照样跑，统一的 shutdown 路径一点没丢。
+  // 跑在 herdr 的 pane 里就把状态报上去，侧栏据此把这个 pane 显示成一个 agent。
+  // 不在 herdr 里跑时它自己是 no-op（判据是 `HERDR_PANE_ID` 在不在）。
+  const herdr = startReporter({ state, sessionId })
+
   const app = render(
     h(SessionApp, { state, client, sessionId, ...(model !== undefined ? { model } : {}) }),
     { exitOnCtrlC: true },
@@ -116,6 +121,9 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
     // 同一个交互脚本有时退得掉、有时挂死——一个「有时候退不出去」的 TUI
     // 从用户角度就是坏的。退出时我们并不需要优雅的关闭握手，到点就走。
     const teardown = (async () => {
+      // 先交还 herdr 的 agent 生命周期，否则侧栏留一个永远 idle 的幽灵。
+      trace('herdr.dispose')
+      await herdr.dispose().catch(() => {})
       trace('state.dispose')
       await state.dispose().catch(() => {})
       trace('client.close')

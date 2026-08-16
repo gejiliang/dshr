@@ -1,0 +1,25 @@
+# dshr —— 让 herdr 把 dsh 会话 pane 当一等公民 agent 纳管。
+#
+# 契约以 `herdr plugin link` 的实际回显为准，不照抄文档：herdr 会**静默丢弃**
+# 不在 schema 内的键（herdr-openclaw 踩过这个坑，别往这里加 homepage / license）。
+#
+# ⚠️ 与 herdr-openclaw 的根本差别：**这里没有 watcher**。
+# openclaw 那类插件只能从外面看一个黑盒 TUI，所以得起进程去解析状态行。
+# dshr 是自己人：pane 身份来自 herdr 注入的 `HERDR_PANE_ID`，会话状态来自
+# dsh host 的权威事件——所以上报逻辑就住在 dshr 进程里（`@dshr/herdr`），
+# 状态一变当场报一次，退出时 `release-agent` 交还。
+# 这个清单只负责让 herdr 认识它、并挂两个动作。
+id = "dshr"
+name = "dsh sessions for Herdr"
+version = "0.1.0"
+description = "Runs dsh sessions in herdr panes and reports their state from the host's own events."
+min_herdr_version = "0.8.0"
+platforms = ["macos"]
+
+# 只挂**真的能用**的动作。宁可少一个，也不要一个按不动的入口——
+# 长得像按钮却没有行为，比不画还糟。
+[[actions]]
+id = "new-session"
+title = "dsh: 在新 pane 里开一个会话"
+contexts = ["workspace"]
+command = ["dshr"]
