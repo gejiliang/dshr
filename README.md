@@ -89,17 +89,32 @@ A passing while B fails is the signature of that bug: the model held the answer,
 never showed it. That is what a check being *falsifiable* looks like — and why B is worth
 having.
 
-The one thing the automated checks cannot cover is the interactive terminal, since they
-render off-screen. For that, run the real thing and type into it:
+### The terminal itself
+
+Everything above renders **off-screen**, so none of it touches raw mode, keystrokes, or
+quitting — and that is exactly where the two worst bugs lived: `Ctrl-C` did nothing at all,
+and once that was fixed it was still dropped when pressed while output streamed. A suite
+that never opens a pty cannot see either one.
 
 ```sh
 node tools/mock-llm.mjs --port 8100 --text "hello" &
 MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome npx @deepseek-ai/dsh@0.1.0-rc.6 web --port 39081 &
+
+expect -f tools/verify-tty.exp        # drives a real pty: render, type, submit, Ctrl-C
+```
+
+It presses `Ctrl-C` with **no settling pause**, right as the answer lands, because that is
+the window that used to swallow it. Falsifiable the same way — revert
+`packages/cli/src/main.tsx`, rebuild, and only the last line goes red.
+
+And by hand, which is still worth doing once:
+
+```sh
 node packages/cli/lib/main.js --connect http://127.0.0.1:39081
 ```
 
-`Ctrl-B` then `%` should split the pane and open a second session; `Ctrl-B w` should list
-workspaces. `Ctrl-C` exits.
+`Ctrl-B %` splits the pane and opens a second session, `Ctrl-B w` lists workspaces,
+`Ctrl-C` quits.
 
 ## Keys
 
