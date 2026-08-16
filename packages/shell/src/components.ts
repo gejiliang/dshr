@@ -23,6 +23,15 @@ export interface ComposerProps {
   /** 有未决交互时输入框应让位给 PendingPrompt。 */
   readonly disabled?: boolean
   readonly onSubmit: (text: string) => void
+  /**
+   * **按键到达那一刻**再问一次该不该收。
+   *
+   * ⚠️ 只靠 `focused` / `disabled` 这两个 prop 会漏键：它们是上一次渲染的值，
+   * 而 ink 异步渲染。前缀动作（`Ctrl-B v` 之类）之后输入框要重新打开，
+   * 紧接着的键若在重渲染落地前到达就被**永久丢掉**——实测并行跑测试时稳定复现。
+   * shell 传的是读 ref 的函数，永远是当前值。
+   */
+  readonly acceptsKey?: () => boolean
 }
 
 /**

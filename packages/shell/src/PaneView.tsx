@@ -22,10 +22,15 @@ export interface PaneViewProps {
   readonly framed: boolean
   /** 前缀键已按下：此拍输入框要静默，避免 Ctrl-B 之后的键落进会话。 */
   readonly prefixPending: boolean
+  /**
+   * 按键时刻现问「这个 pane 的输入框该不该收」。
+   * 光靠 `focused` / `prefixPending` 两个 prop 会漏键——它们是上一次渲染的值。
+   */
+  readonly acceptsKey?: () => boolean
   readonly onSubmit: (sessionId: SessionId, text: string) => void
 }
 
-export function PaneView({ pane, state, components, focused, framed, prefixPending, onSubmit }: PaneViewProps): ReactElement {
+export function PaneView({ pane, state, components, focused, framed, prefixPending, acceptsKey, onSubmit }: PaneViewProps): ReactElement {
   const { Conversation, Composer, PendingPrompt } = components
   const session = pane.sessionId !== null ? state.sessions.get(pane.sessionId as SessionId) : undefined
 
@@ -65,6 +70,7 @@ export function PaneView({ pane, state, components, focused, framed, prefixPendi
             <Composer
               sessionId={session.sessionId}
               focused={focused && !prefixPending}
+              {...(acceptsKey !== undefined ? { acceptsKey } : {})}
               onSubmit={(text) => onSubmit(session.sessionId, text)}
             />
           )}

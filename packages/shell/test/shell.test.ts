@@ -19,6 +19,23 @@ const { DEFAULT_KEY_TABLE } = await import('../lib/keys.js')
 /** 打字后等一拍让 Promise / setState 落定。 */
 const tick = () => new Promise((r) => setTimeout(r, 30))
 
+/**
+ * 等到条件成立为止，**不要用固定 sleep 去等渲染**。
+ *
+ * ⚠️ 踩过：断言前只 `await tick()`（固定 30ms），单独跑这个文件时 72/72 全绿，
+ * 但 `node --test packages/*/test/*.test.ts` 并行跑整个仓库时，ink 的异步渲染
+ * 被别的测试进程挤到 30ms 之后，断言先跑 → 偶发失败。
+ * 而 README 让人跑的正是全量那条命令，所以「单独跑是绿的」不算数。
+ */
+async function waitFor(check: () => boolean, what: string, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (check()) return
+    await new Promise((r) => setTimeout(r, 10))
+  }
+  throw new Error(`等不到：${what}（${timeoutMs}ms）`)
+}
+
 interface Probe {
   createSessionCalls: number
   /** [sessionId, 输入] -- 按 pane 分清是谁收到的。 */
@@ -47,14 +64,27 @@ function makeFakeState(probe: Probe) {
 
 function makeComponents(probe: Probe) {
   const Conversation = () => h(Text, null, 'CONV')
-  const Composer = ({ sessionId, focused, onSubmit }: { sessionId: string; focused: boolean; onSubmit: (t: string) => void }) => {
+  // 假 Composer 必须**和真 Composer 同样按 acceptsKey 在按键时刻判活**，
+  // 否则测的是一个比真实现更宽松的东西（`isActive: focused` 用的是上一次渲染的值，会漏键）。
+  const Composer = ({
+    sessionId,
+    focused,
+    acceptsKey,
+    onSubmit,
+  }: {
+    sessionId: string
+    focused: boolean
+    acceptsKey?: () => boolean
+    onSubmit: (t: string) => void
+  }) => {
     useInput(
       (input, key) => {
+        if (acceptsKey !== undefined && !acceptsKey()) return
         if (key.ctrl) return // 契约：Ctrl 组合键是 shell 前缀层的领域
         probe.composerInput.push([sessionId, input])
         if (input === '\r') onSubmit(input)
       },
-      { isActive: focused },
+      { isActive: acceptsKey !== undefined ? true : focused },
     )
     return h(Text, null, focused ? 'COMPOSER*' : 'composer')
   }
@@ -183,19 +213,18 @@ test('prefix+hjkl 移动焦点（vim 方向，方向键之外的新增绑定）'
   const { stdin } = setup(probe)
   await tick()
   await prefix(stdin, 'v') // 竖分；焦点在新 pane（sess-2）
-  await tick()
-  assert.equal(probe.createSessionCalls, 2)
+  await waitFor(() => probe.createSessionCalls === 2, '第二个 pane 的会话建好')
   probe.composerInput.length = 0
   await prefix(stdin, 'h') // 回左边（sess-1）
   await tick()
   stdin.write('q')
-  await tick()
+  await waitFor(() => probe.composerInput.length > 0, 'h 之后的按键落进某个 composer')
   assert.deepEqual(probe.composerInput, [['sess-1', 'q']], 'h 把焦点移回左 pane')
   probe.composerInput.length = 0
   await prefix(stdin, 'l') // 再去右边
   await tick()
   stdin.write('w')
-  await tick()
+  await waitFor(() => probe.composerInput.length > 0, 'l 之后的按键落进某个 composer')
   assert.deepEqual(probe.composerInput, [['sess-2', 'w']], 'l 把焦点移回右 pane')
 })
 
@@ -260,14 +289,21 @@ test('非前缀按键透传给聚焦 pane 的输入框，回车触发 prompt', a
 
 test('两个 pane 同时挂载：打字只落进焦点 pane 的 Composer', async () => {
   const probe: Probe = { createSessionCalls: 0, composerInput: [], prompts: [] }
-  const { stdin } = setup(probe)
+  const { stdin, lastFrame } = setup(probe)
   await tick()
   await prefix(stdin, 'v') // 竖分；焦点移到新 pane（sess-2）
-  await tick()
-  assert.equal(probe.createSessionCalls, 2)
+  await waitFor(() => probe.createSessionCalls === 2, '第二个 pane 的会话建好')
+  // ⚠️ 必须等**新 pane 的输入框真的挂上**再打字。
+  // 分屏之后到新组件挂载之间有一个窗口，那时它还不存在，键当然进不去——
+  // 这不是可以靠「判活」修掉的东西，是组件还没生出来。真人分屏后再打字
+  // 天然隔着几十毫秒，不会踩到；但测试若不等，就是在测一个无法满足的期望。
+  await waitFor(
+    () => ((lastFrame() ?? '').match(/composer/gi) ?? []).length >= 2,
+    '两个 pane 的输入框都挂上了',
+  )
   probe.composerInput.length = 0
   stdin.write('k')
-  await tick()
+  await waitFor(() => probe.composerInput.length > 0, '按键落进某个 composer')
   assert.deepEqual(probe.composerInput, [['sess-2', 'k']], '只有焦点 pane 收到键')
 })
 

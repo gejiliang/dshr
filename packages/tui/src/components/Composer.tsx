@@ -9,6 +9,18 @@ export interface ComposerProps {
   placeholder?: string
   /** 初始内容（恢复草稿 / 测试用），非受控。 */
   initialText?: string
+  /**
+   * **按键到达那一刻**再问一次「现在该不该收这个键」。
+   *
+   * ⚠️ 光靠 `disabled` 这个 prop 不够：它是**上一次渲染**的值，而 ink 是异步渲染。
+   * 外壳在前缀动作（如 `Ctrl-B v`）之后要把输入框重新打开，若紧接着的键在重渲染
+   * 落地之前到达，就会被当成「还关着」而**永久丢掉**——不是延迟，是没了。
+   * 实测：并行跑测试时稳定复现，等 5 秒也等不到那个键。
+   *
+   * 所以外壳用它传一个**读当前值**的函数（读 ref，不读 state）。
+   * 不传则只看 `disabled`。
+   */
+  acceptsKey?: () => boolean
 }
 
 export type ComposerHint = 'command' | 'reference' | null
@@ -68,6 +80,7 @@ export function Composer({
   disabled = false,
   placeholder = 'Type a message…  (shift+enter / ctrl+j for newline)',
   initialText = '',
+  acceptsKey,
 }: ComposerProps) {
   const [text, setText] = useState(initialText)
   const [cursor, setCursor] = useState(initialText.length)
@@ -83,6 +96,8 @@ export function Composer({
 
   useInput(
     (input, key) => {
+      // 按键到达那一刻现问一次——`disabled` 是上一次渲染的值，会漏键（见 acceptsKey 的注释）。
+      if (acceptsKey !== undefined && !acceptsKey()) return
       const { text: current, cursor: at } = stateRef.current
       if (key.escape || key.tab) return
       if (key.return) {
@@ -119,7 +134,9 @@ export function Composer({
       // '\n'（Ctrl+J / 粘贴里的换行）走通用插入路径，天然支持多行。
       apply(insertText(current, at, input.replace(/\r\n?/g, '\n')))
     },
-    { isActive: !disabled },
+    // 给了 acceptsKey 就让 ink 始终把键送进来，由上面那行**在按键时刻**判断收不收；
+    // 否则回到只看 disabled 的老行为。
+    { isActive: acceptsKey !== undefined ? true : !disabled },
   )
 
   const hint = hintFor(text, cursor)

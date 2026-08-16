@@ -108,6 +108,12 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
   const activeTabId = model.activeTabByWorkspace.get(activeWorkspaceId) ?? null
   const activeTab = visibleTabs.find((t) => t.tabId === activeTabId) ?? visibleTabs[0] ?? null
   const activePaneId = activeTab?.focusedPaneId ?? null
+  // 焦点 pane 的**当前**值，供 acceptsKey 在按键时刻读。
+  // 渲染时同步一次作为兜底；真正要紧的是动作发生时由 mutateActiveTab 当场写入——
+  // 否则「分屏之后紧接着打的字」会投进旧 pane。
+  const activePaneIdRef = useRef<string | null>(null)
+  activePaneIdRef.current = activePaneId
+
   const activeSessionId = useMemo(() => {
     if (activeTab?.root == null || activePaneId === null) return null
     // paneId -> sessionId
@@ -303,6 +309,10 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
         const before = paneIds(activeTab.root)
         const root = splitPane(activeTab.root, activePaneId, dir)
         const fresh = paneIds(root).find((id) => !before.includes(id))
+        // ⚠️ 焦点要**当场**写进 ref，不能写在 setModel 的 updater 里：
+        // 那个 updater 是 React 渲染阶段才跑的，不是调用时。写晚了，
+        // 分屏后紧接着打的字会投进旧 pane（实测）。
+        if (fresh !== undefined) activePaneIdRef.current = fresh
         mutateActiveTab((t) => ({ ...t, root, focusedPaneId: fresh ?? t.focusedPaneId }))
         if (fresh !== undefined) spawnSession(fresh, activeTab.tabId, activeWorkspaceId)
         break
@@ -315,6 +325,7 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
         const width = cols !== undefined && cols > 0 ? cols : 80
         const height = (rws !== undefined && rws > 0 ? rws : 24) - 2 // 去掉 tab 栏与底部栏
         const next = focusDirection(activeTab.root, activePaneId, a.direction, { x: 0, y: 0, width, height })
+        activePaneIdRef.current = next // 同上：当场写，别等 updater
         mutateActiveTab((t) => ({ ...t, focusedPaneId: next }))
         break
       }
@@ -371,6 +382,18 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
       ? findPane(activeTab.root, activeTab.zoomedPaneId)
       : null
 
+  /**
+   * 按键时刻判断某个 pane 的输入框该不该收这个键。
+   *
+   * ⚠️ 关键是 `dispatcher.awaitingPrefixFollowUp` 读的是**当前**值（dispatcher 在 ref 里），
+   * 而不是渲染时快照。前缀动作之后输入框要立刻重新收键——若等重渲染落地，
+   * 中间到达的键会被永久丢掉（实测并行跑测试稳定复现，等 5 秒也补不回来）。
+   */
+  const acceptsKeyFor = (paneId: string) => () =>
+    overlayRef.current === null &&
+    paneId === activePaneIdRef.current &&
+    !dispatcher.awaitingPrefixFollowUp
+
   const renderNode = (node: LayoutNode): ReactElement => {
     if (node.kind === 'pane') {
       return (
@@ -382,6 +405,7 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
           focused={overlay === null && node.paneId === activePaneId}
           framed={framed}
           prefixPending={dispatcher.awaitingPrefixFollowUp}
+          acceptsKey={acceptsKeyFor(node.paneId)}
           onSubmit={onSubmit}
         />
       )
@@ -438,6 +462,7 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
                 focused={overlay === null && zoomedPane.paneId === activePaneId}
                 framed={false}
                 prefixPending={dispatcher.awaitingPrefixFollowUp}
+                acceptsKey={acceptsKeyFor(zoomedPane.paneId)}
                 onSubmit={onSubmit}
               />
             ) : (
