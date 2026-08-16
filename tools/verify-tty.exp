@@ -1,0 +1,64 @@
+#!/usr/bin/expect -f
+#
+# 在**真 pty 里**驱动 dshr：起来 → 打字 → 回车 → 收到回答 → Ctrl-C 退出。
+#
+# 为什么必须单独有这么一条：其余所有检查都是**离屏渲染**（ink-testing-library），
+# 碰不到 raw mode、碰不到按键、更碰不到退出。真实世界的两个 bug 就藏在那里——
+# Ctrl-C 完全没反应（终端被扣住），以及流式输出时按 Ctrl-C 会被丢掉。
+# 离屏测试全绿的时候，这两个 bug 都活得好好的。
+#
+# 用法（先起好 mock 与 host，见 README）：
+#   expect -f tools/verify-tty.exp [baseUrl] [期望在回答里出现的字串]
+#
+# 依赖 `expect`（macOS 自带，Linux 装 expect 包）。
+
+set timeout 30
+log_user 0
+set stty_init "rows 40 columns 120"
+
+set base [expr {$argc > 0 ? [lindex $argv 0] : "http://127.0.0.1:39081"}]
+set mark [expr {$argc > 1 ? [lindex $argv 1] : "mock says"}]
+
+proc ok {msg} { puts "  PASS  $msg" }
+proc bad {msg} { puts "  FAIL  $msg" ; exit 1 }
+
+spawn -noecho node packages/cli/lib/main.js --connect $base
+
+expect {
+  "工作区" {}
+  timeout  { bad "30s 内界面没画出来" }
+  eof      { bad "进程直接退了（host 连不上？）" }
+}
+ok "界面在真 pty 里画出来了"
+
+expect {
+  "Type a message" {}
+  timeout          { bad "没有输入框" }
+}
+ok "输入框在"
+
+send -- "hello from the tty check"
+expect {
+  "hello from the tty check" {}
+  timeout                    { bad "打的字没有回显——键盘输入没进去" }
+}
+ok "打字有回显"
+
+send -- "\r"
+expect {
+  $mark   {}
+  timeout { bad "回车提交后 30s 没等到回答" }
+}
+ok "回车提交后收到了回答"
+
+# 关键：**不留缓冲时间**，就在回答刚出来的这一瞬间按 Ctrl-C。
+# 这正是曾经会被丢掉的那个窗口；隔两秒再按是测不出来的。
+send -- "\003"
+expect {
+  eof     {}
+  timeout { bad "Ctrl-C 没退出——终端被扣住了（流式输出中按下时最容易复现）" }
+}
+ok "流式刚结束时按 Ctrl-C 能退出"
+
+puts "\n真终端交互：全部通过"
+exit 0

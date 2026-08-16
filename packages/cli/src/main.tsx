@@ -19,6 +19,9 @@ import { FlagError, parseFlags, USAGE, type ParsedFlags } from './flags.js'
 import { ensureHost, runServer, type HostHandle } from './host.js'
 import { withResumeSession } from './resume.js'
 
+/** 退出时留给「断连接、关自己拉起的 host」的上限，超了就直接走。 */
+const SHUTDOWN_BUDGET_MS = 1500
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -80,20 +83,47 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
   if (!(process.stdout.columns > 0)) process.stdout.columns = 80
   if (!(process.stdout.rows > 0)) process.stdout.rows = 24
 
-  // exitOnCtrlC: false —— Ctrl-C 由我们自己的 SIGINT 处理走统一的 shutdown 路径。
+  // ⚠️ `exitOnCtrlC` 必须是 true。
+  //
+  // 终端进 raw mode 之后，**Ctrl-C 不再产生 SIGINT**——它就是一个字节（0x03）
+  // 走正常输入通道。所以「设 exitOnCtrlC: false，自己挂 process.on('SIGINT')」
+  // 这个写法看着更讲究，实际后果是**按 Ctrl-C 完全没反应，终端被扣住，
+  // 只能开另一个窗口去 kill**。实测踩过。
+  //
+  // 交给 ink：它认得 0x03，会 unmount 并让 `waitUntilExit()` 返回，
+  // 下面那段收尾照样跑，统一的 shutdown 路径一点没丢。
   const app = render(h(Shell, { state: effectiveState, components, initialWorkspaceId: workspaceId }), {
-    exitOnCtrlC: false,
+    exitOnCtrlC: true,
   })
 
   let shuttingDown = false
   const shutdown = async (code: number): Promise<void> => {
     if (shuttingDown) return
     shuttingDown = true
-    // 顺序：先恢复终端（unmount），再断状态与连接，最后只关**自己拉起的** host。
+    const trace = (s: string): void => {
+      if (process.env.DSHR_TRACE_SHUTDOWN) process.stderr.write(`[shutdown] ${s}\n`)
+    }
+    // 先恢复终端——这一步必须同步做完，用户按了退出就该立刻拿回终端。
+    trace('unmount')
     app.unmount()
-    await state.dispose().catch(() => {})
-    await client.close().catch(() => {})
-    await host.close().catch(() => {})
+
+    // ⚠️ 后面这些拆除**必须有上限**。
+    // WebSocket 的关闭握手在对端不配合时可以永远不返回，实测就是这样：
+    // 同一个交互脚本有时退得掉、有时挂死——一个「有时候退不出去」的 TUI
+    // 从用户角度就是坏的。退出时我们并不需要优雅的关闭握手，到点就走。
+    const teardown = (async () => {
+      trace('state.dispose')
+      await state.dispose().catch(() => {})
+      trace('client.close')
+      await client.close().catch(() => {})
+      trace('host.close')
+      await host.close().catch(() => {})
+    })()
+    await Promise.race([
+      teardown,
+      new Promise((resolve) => setTimeout(resolve, SHUTDOWN_BUDGET_MS).unref()),
+    ])
+    trace('done')
     process.exitCode = code
   }
   const onSigint = (): void => void shutdown(130)
@@ -101,7 +131,23 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
   process.on('SIGINT', onSigint)
   process.on('SIGTERM', onSigterm)
 
+  // ⚠️ Ctrl-C 自己盯，不全指望 ink。
+  //
+  // raw mode 下 Ctrl-C 不产生 SIGINT，只是一个字节（0x03）。ink 的 `exitOnCtrlC`
+  // 认得它，**但会漏**：组件树在一轮对话里会换（Composer ↔ PendingPrompt、
+  // 焦点变化），`useInput` 的挂载数量随之变动，而 0x03 恰好落在那个窗口里就没人接。
+  // 实测症状是「刚出答案那一瞬间按 Ctrl-C 没反应，隔两秒再按就好」——
+  // 而流式输出正在跑的时候，恰恰是最想按 Ctrl-C 的时候。
+  //
+  // 直接在 stdin 上看字节，与渲染状态无关。ink 的 exitOnCtrlC 保留着当第二道保险。
+  const onStdinData = (chunk: Buffer | string): void => {
+    const buf = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
+    if (buf.includes(0x03)) void shutdown(130)
+  }
+  process.stdin.on('data', onStdinData)
+
   await app.waitUntilExit()
+  process.stdin.off('data', onStdinData)
   process.off('SIGINT', onSigint)
   process.off('SIGTERM', onSigterm)
   await shutdown(0)
@@ -133,12 +179,25 @@ const invokedDirectly =
 
 if (invokedDirectly) {
   main(process.argv.slice(2)).then(
-    (code) => {
-      process.exitCode = code
-    },
+    (code) => finish(code),
     (error: unknown) => {
       process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
-      process.exitCode = 1
+      finish(1)
     },
   )
+}
+
+/**
+ * 收尾之后**显式退出**。
+ *
+ * ⚠️ 只设 `process.exitCode` 是不够的：那只在事件循环自己排空时才生效。
+ * 一个 TUI 收尾后总还剩点东西吊着循环（WebSocket 的收尾、raw-mode 的 stdin、
+ * 上游库自己的定时器），于是**界面已经没了、进程还在**——从用户角度就是
+ * 「按了 Ctrl-C 没反应，终端被扣住」。实测踩过：Ctrl-C 之后进程活了 6 分钟。
+ *
+ * 到这里该拆的都拆了，走人即可。stdout 对 TTY 是同步写，不存在没刷完的输出。
+ */
+function finish(code: number): void {
+  process.exitCode = code
+  process.exit(code)
 }
