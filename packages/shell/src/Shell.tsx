@@ -1,27 +1,35 @@
 /**
- * 整壳：tab bar + pane 区 + 侧栏 + 状态行（+ 两个工作区覆盖层）。
+ * 整壳：侧栏 + 内容区（tab 栏 / pane 区 / 底部提示栏）+ 覆盖层。
  *
- * 布局逻辑全部在 `layout.ts` / `tabs.ts` / `overlay.ts` 的纯函数里，这里只负责：
+ * 布局逻辑全部在 `layout.ts` / `tabs.ts` / `overlay.ts` / `keys.ts` / `hint.ts`
+ * 的纯函数里，这里只负责：
  * 1. 把键事件折算成 `KeyStroke` / `OverlayKeyStroke` 喂给纯状态机，把动作应用到纯数据上；
  * 2. 新建 tab / pane 时**默认开一个新 dsh 会话**，且挂在**当前活动工作区**下；
  * 3. 持有活动工作区（`initialWorkspaceId` 只是初值）：切换工作区只是换视角，
  *    每个 workspace 自己的 tab 集合原封不动，切回去还在；
  * 4. 把这棵树画出来。终端尺寸变化由 flexbox 布局自动重算。
+ *
+ * 画面结构对齐 herdr（docs/herdr-reference.md）：侧栏在最左（spaces 列表 +
+ * 底部 2×2 入口块 + «），内容区在其右、由一条贯穿的竖线隔开，tab 栏在内容区
+ * 顶部，底部一行在「前缀键位提示」与「会话状态」之间切换。
  */
 import type { DshrState, SessionId } from '@dshr/state'
 import { Box, Text, useInput, useStdout } from 'ink'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ShellComponents } from './components.js'
+import { HintBar } from './HintBar.js'
 import { KeyDispatcher, type KeyStroke } from './keys.js'
 import {
   type LayoutNode,
   computeRects,
+  findPane,
   focusDirection,
+  paneCount,
   paneIds,
   setPaneSession,
   splitPane,
 } from './layout.js'
-import { NewWorkspaceOverlay, WorkspacePickerOverlay } from './Overlays.js'
+import { NewWorkspaceOverlay, WorkspacePickerOverlay, HelpOverlay } from './Overlays.js'
 import {
   type OverlayKeyStroke,
   type TextInputModel,
@@ -34,7 +42,7 @@ import {
   textInputFromKey,
 } from './overlay.js'
 import { PaneView } from './PaneView.js'
-import { Sidebar } from './Sidebar.js'
+import { Sidebar, type SidebarView } from './Sidebar.js'
 import { TabBar } from './TabBar.js'
 import { type Tab, adjacentTabId, closeTabPane, createTab } from './tabs.js'
 
@@ -54,14 +62,18 @@ interface ShellModel {
   /** 每个工作区各自记住自己的活跃 tab。 */
   readonly activeTabByWorkspace: ReadonlyMap<string, string | null>
   readonly sidebarOpen: boolean
+  /** 侧栏中间区域显示 space 列表还是全量 agent 列表（herdr 的 agents 入口格）。 */
+  readonly sidebarView: SidebarView
 }
 
 /** 覆盖层状态（纯数据，状态机在 overlay.ts）。 */
 type OverlayState =
   | { readonly kind: 'picker'; readonly model: WorkspacePickerModel }
   | { readonly kind: 'newWorkspace'; readonly input: TextInputModel; readonly error: string | null }
+  | { readonly kind: 'help' }
 
-const DEFAULT_SIDEBAR_WIDTH = 28
+/** herdr 截屏里侧栏连竖线共 25 列。 */
+const DEFAULT_SIDEBAR_WIDTH = 25
 
 export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth }: ShellProps): ReactElement {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(initialWorkspaceId)
@@ -69,6 +81,7 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
     tabs: [],
     activeTabByWorkspace: new Map(),
     sidebarOpen: true,
+    sidebarView: 'spaces',
   })
   const [overlay, setOverlay] = useState<OverlayState | null>(null)
   // 键处理读 ref（同一拍内连续到达的键不能读到过期闭包），渲染读 state。
@@ -82,6 +95,10 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
   const dispatcher = dispatcherRef.current
   const [, forcePrefixTick] = useState(0)
   const { stdout } = useStdout()
+  // ink 只把根节点宽度钉在终端宽上，高度是内容驱动的；想铺满全屏
+  // （侧栏拉到底、底部栏钉在末行）就得自己按终端行数定高。
+  // 尺寸未知的 tty 给的是 **0**（不是 undefined），用 > 0 判。
+  const termRows = stdout?.rows !== undefined && stdout.rows > 0 ? stdout.rows : 24
 
   // 当前工作区视角：只看属于它的 tab；活跃 tab 从它自己的记忆里取
   const visibleTabs = useMemo(
@@ -158,6 +175,16 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
     [activeWorkspaceId],
   )
 
+  const setActiveTab = useCallback(
+    (tabId: string) => {
+      setModel((m) => ({
+        ...m,
+        activeTabByWorkspace: new Map(m.activeTabByWorkspace).set(activeWorkspaceId, tabId),
+      }))
+    },
+    [activeWorkspaceId],
+  )
+
   /** 新建工作区：成功切过去并开新会话；失败把 host 的业务错误亮在覆盖层里。 */
   const submitNewWorkspace = useCallback(
     (path: string) => {
@@ -186,6 +213,10 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
     (stroke: OverlayKeyStroke) => {
       const cur = overlayRef.current
       if (cur === null) return
+      if (cur.kind === 'help') {
+        if (stroke.escape) applyOverlay(null)
+        return
+      }
       if (cur.kind === 'picker') {
         const input = pickerInputFromKey(stroke)
         if (input === null) return
@@ -239,7 +270,7 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
     }
     const result = dispatcher.dispatch(stroke)
     if (result.kind === 'consumed') {
-      forcePrefixTick((n) => n + 1) // 让状态行反映「前缀已按下」
+      forcePrefixTick((n) => n + 1) // 让底部提示栏出现
       return
     }
     if (result.kind === 'passthrough') return // 交给聚焦 pane 的输入框（它自己的 useInput 处理）
@@ -256,12 +287,12 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
           activeTab?.tabId ?? '',
           a.type === 'nextTab' ? 1 : -1,
         )
-        if (next !== null) {
-          setModel((m) => ({
-            ...m,
-            activeTabByWorkspace: new Map(m.activeTabByWorkspace).set(activeWorkspaceId, next),
-          }))
-        }
+        if (next !== null) setActiveTab(next)
+        break
+      }
+      case 'selectTab': {
+        const target = visibleTabs[a.index - 1]
+        if (target !== undefined) setActiveTab(target.tabId)
         break
       }
       case 'splitVertical':
@@ -278,11 +309,11 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
       }
       case 'focusPane': {
         if (activeTab?.root == null || activePaneId === null) break
-        // 尺寸未知的 tty 给的是 **0** 而不是 undefined，`??` 挡不住——用 > 0 判。
+        // 尺寸未知的 tty 给的是 **0** 而不是 undefined，`??` 挡不住--用 > 0 判。
         const cols = stdout?.columns
         const rws = stdout?.rows
         const width = cols !== undefined && cols > 0 ? cols : 80
-        const height = (rws !== undefined && rws > 0 ? rws : 24) - 2 // 去掉 tab bar 与状态行
+        const height = (rws !== undefined && rws > 0 ? rws : 24) - 2 // 去掉 tab 栏与底部栏
         const next = focusDirection(activeTab.root, activePaneId, a.direction, { x: 0, y: 0, width, height })
         mutateActiveTab((t) => ({ ...t, focusedPaneId: next }))
         break
@@ -291,12 +322,26 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
         if (activeTab === null || activePaneId === null) break
         const r = closeTabPane(activeTab, activePaneId)
         if (!r.found) break
-        // 关 pane 只是 detach：会话本身留在 host 上，侧栏里仍可见、可重开
+        // 关 pane 只是 detach：会话本身留在 host 上，agents 视图里仍可见、可重开
         mutateActiveTab(() => r.tab)
         break
       }
       case 'toggleSidebar':
         setModel((m) => ({ ...m, sidebarOpen: !m.sidebarOpen }))
+        break
+      case 'sidebarAgentsView':
+        setModel((m) => ({ ...m, sidebarView: m.sidebarView === 'spaces' ? 'agents' : 'spaces' }))
+        break
+      case 'toggleZoom':
+        if (activeTab === null || activePaneId === null) break
+        mutateActiveTab((t) =>
+          t.focusedPaneId === null
+            ? t
+            : { ...t, zoomedPaneId: t.zoomedPaneId === t.focusedPaneId ? null : t.focusedPaneId },
+        )
+        break
+      case 'showHelp':
+        applyOverlay({ kind: 'help' })
         break
       case 'selectWorkspace':
         applyOverlay({
@@ -319,6 +364,13 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
     [state],
   )
 
+  // herdr：单 pane 不画框；多 pane 时每片方角框。zoom 时可见的也只有一片。
+  const framed = activeTab?.root != null && activeTab.zoomedPaneId === null && paneCount(activeTab.root) > 1
+  const zoomedPane =
+    activeTab?.root != null && activeTab.zoomedPaneId !== null
+      ? findPane(activeTab.root, activeTab.zoomedPaneId)
+      : null
+
   const renderNode = (node: LayoutNode): ReactElement => {
     if (node.kind === 'pane') {
       return (
@@ -328,6 +380,7 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
           state={state}
           components={components}
           focused={overlay === null && node.paneId === activePaneId}
+          framed={framed}
           prefixPending={dispatcher.awaitingPrefixFollowUp}
           onSubmit={onSubmit}
         />
@@ -349,38 +402,71 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
   const activeSummary = activeSessionId !== null ? state.sessions.get(activeSessionId) : undefined
 
   return (
-    <Box flexDirection="column" width="100%" height="100%">
-      <TabBar tabs={visibleTabs} activeTabId={activeTab?.tabId ?? null} />
-      <Box flexGrow={1} flexDirection="row">
-        {model.sidebarOpen ? (
-          <Sidebar
-            state={state}
-            activeSessionId={activeSessionId}
-            width={sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH}
-            activeWorkspaceId={activeWorkspaceId}
-          />
-        ) : null}
-        <Box flexGrow={1} flexDirection="column">
+    <Box flexDirection="row" width="100%" height={termRows}>
+      {model.sidebarOpen ? (
+        <Sidebar
+          state={state}
+          activeSessionId={activeSessionId}
+          width={sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH}
+          activeWorkspaceId={activeWorkspaceId}
+          view={model.sidebarView}
+        />
+      ) : null}
+      {/* 侧栏开着时，内容区左边一条贯穿的竖线（herdr 截屏里唯一的分隔线） */}
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        {...(model.sidebarOpen
+          ? {
+              borderStyle: 'single' as const,
+              borderLeft: true,
+              borderTop: false,
+              borderRight: false,
+              borderBottom: false,
+              borderColor: 'gray',
+            }
+          : {})}
+      >
+        <TabBar tabs={visibleTabs} activeTabId={activeTab?.tabId ?? null} />
+        <Box flexDirection="column" flexGrow={1}>
           {activeTab?.root != null ? (
-            renderNode(activeTab.root)
+            zoomedPane !== null ? (
+              <PaneView
+                pane={zoomedPane}
+                state={state}
+                components={components}
+                focused={overlay === null && zoomedPane.paneId === activePaneId}
+                framed={false}
+                prefixPending={dispatcher.awaitingPrefixFollowUp}
+                onSubmit={onSubmit}
+              />
+            ) : (
+              renderNode(activeTab.root)
+            )
           ) : (
             <Box flexGrow={1} justifyContent="center" alignItems="center">
               <Text dimColor>Ctrl-B c 新建 tab · Ctrl-B w 切换工作区</Text>
             </Box>
           )}
         </Box>
+        {/* 底部一行：前缀按下时是键位提示，平时是会话状态（模型 · 上下文 · 连接） */}
+        {dispatcher.awaitingPrefixFollowUp ? (
+          <HintBar />
+        ) : (
+          <StatusLine
+            tabCount={visibleTabs.length}
+            activeTitle={activeSummary?.title ?? ''}
+            activeStatus={activeSummary?.status ?? null}
+            prefixPending={dispatcher.awaitingPrefixFollowUp}
+            sidebarOpen={model.sidebarOpen}
+          />
+        )}
       </Box>
       {overlay?.kind === 'picker' ? <WorkspacePickerOverlay model={overlay.model} /> : null}
       {overlay?.kind === 'newWorkspace' ? (
         <NewWorkspaceOverlay input={overlay.input} error={overlay.error} />
       ) : null}
-      <StatusLine
-        tabCount={visibleTabs.length}
-        activeTitle={activeSummary?.title ?? ''}
-        activeStatus={activeSummary?.status ?? null}
-        prefixPending={dispatcher.awaitingPrefixFollowUp}
-        sidebarOpen={model.sidebarOpen}
-      />
+      {overlay?.kind === 'help' ? <HelpOverlay /> : null}
     </Box>
   )
 }

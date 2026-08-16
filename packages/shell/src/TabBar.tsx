@@ -1,5 +1,6 @@
 /**
- * 顶部 tab bar：列出当前工作区的 tab，高亮活跃 tab。
+ * tab 栏：在**内容区顶部**（侧栏竖线右边，docs/herdr-reference.md 第一节），
+ * 形如 ` 1  2     +`；`+` 是新建 tab 的可视入口（本版不可点，真入口是 prefix+c）。
  */
 import { Box, Text } from 'ink'
 import type { ReactElement } from 'react'
@@ -16,17 +17,17 @@ export function tabLabel(tab: Tab, index: number): string {
 
 export function TabBar({ tabs, activeTabId }: TabBarProps): ReactElement {
   return (
-    <Box>
+    <Box width="100%">
       {tabs.map((t, i) => {
         const active = t.tabId === activeTabId
         return (
-          <Box key={t.tabId} marginRight={1}>
-            <Text
-              {...(active ? { inverse: true, bold: true } : { dimColor: true })}
-            >{` ${tabLabel(t, i)} `}</Text>
-          </Box>
+          <Text key={t.tabId} {...(active ? { inverse: true, bold: true } : { dimColor: true })}>
+            {` ${tabLabel(t, i)} `}
+          </Text>
         )
       })}
+      <Box flexGrow={1} />
+      <Text dimColor>+</Text>
     </Box>
   )
 }

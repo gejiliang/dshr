@@ -2,8 +2,8 @@
  * 键位分发：纯状态机，不 import ink。ink 的 key 事件在边界上折算成
  * `KeyStroke` 喂进来，出去的是 `ShellAction`（壳自己消化）或透传（给会话输入框）。
  *
- * 键表是数据（`KeyTable`），这版内置 tmux 风格的默认表；之后要做成可配置，
- * 换一张表即可，状态机不用动。
+ * 键表是数据（`KeyTable`），这版内置 herdr 风格的默认表（docs/herdr-reference.md
+ * 第四节的对照表）；之后要做成可配置，换一张表即可，状态机不用动。
  */
 
 /** ink `useInput((input, key) => …)` 的最小折算形状。 */
@@ -20,13 +20,20 @@ export type ShellAction =
   | { readonly type: 'newTab' }
   | { readonly type: 'nextTab' }
   | { readonly type: 'prevTab' }
+  /** 按序号切 tab，index 是 1 起的人类序号。 */
+  | { readonly type: 'selectTab'; readonly index: number }
   | { readonly type: 'splitVertical' }
   | { readonly type: 'splitHorizontal' }
   | { readonly type: 'focusPane'; readonly direction: 'left' | 'right' | 'up' | 'down' }
   | { readonly type: 'closePane' }
   | { readonly type: 'toggleSidebar' }
+  /** 当前 pane 全屏 / 还原。 */
+  | { readonly type: 'toggleZoom' }
+  | { readonly type: 'showHelp' }
   | { readonly type: 'selectWorkspace' }
   | { readonly type: 'newWorkspace' }
+  /** 侧栏在 space 列表与全量 agent 列表之间切换。 */
+  | { readonly type: 'sidebarAgentsView' }
 
 export type DispatchResult =
   | { readonly kind: 'action'; readonly action: ShellAction }
@@ -35,25 +42,40 @@ export type DispatchResult =
   /** 前缀序列中途或完成后被消费，不再透传。 */
   | { readonly kind: 'consumed' }
 
-/** 前缀键后接的单键 → 动作。 */
+/** 前缀键后接的单键 -> 动作。 */
 export interface KeyTable {
   readonly prefix: KeyStroke
   readonly bindings: Readonly<Record<string, ShellAction>>
 }
 
-/** tmux 风格默认表：Ctrl-B 前缀。 */
+/** prefix+1..9 -> 按序号切 tab。 */
+const DIGIT_BINDINGS: Readonly<Record<string, ShellAction>> = Object.freeze(
+  Object.fromEntries(
+    Array.from({ length: 9 }, (_, i) => [String(i + 1), { type: 'selectTab', index: i + 1 } as ShellAction]),
+  ),
+)
+
+/**
+ * herdr 风格默认表（Ctrl-B 前缀）。
+ * 刻意**不绑** `s`：herdr 那是设置面板，本版没有设置，留空给人肉记忆，
+ * 绑成别的动作会踩空。
+ */
 export const DEFAULT_KEY_TABLE: KeyTable = {
   prefix: { input: 'b', ctrl: true },
   bindings: {
     c: { type: 'newTab' },
     n: { type: 'nextTab' },
     p: { type: 'prevTab' },
-    '%': { type: 'splitVertical' },
-    '"': { type: 'splitHorizontal' },
+    v: { type: 'splitVertical' },
+    '-': { type: 'splitHorizontal' },
     x: { type: 'closePane' },
-    s: { type: 'toggleSidebar' },
+    z: { type: 'toggleZoom' },
+    b: { type: 'toggleSidebar' },
+    a: { type: 'sidebarAgentsView' },
     w: { type: 'selectWorkspace' },
-    W: { type: 'newWorkspace' },
+    N: { type: 'newWorkspace' },
+    '?': { type: 'showHelp' },
+    ...DIGIT_BINDINGS,
   },
 }
 
@@ -75,8 +97,16 @@ const ARROWS: ReadonlyArray<[keyof KeyStroke, 'up' | 'down' | 'left' | 'right']>
   ['rightArrow', 'right'],
 ]
 
+/** herdr 的焦点移动：h/j/k/l（vim 方向），方向键作为额外绑定保留。 */
+const HJKL: Readonly<Record<string, 'left' | 'down' | 'up' | 'right'>> = {
+  h: 'left',
+  j: 'down',
+  k: 'up',
+  l: 'right',
+}
+
 /**
- * 两态状态机：idle →（前缀键）→ prefix →（一个键）→ idle。
+ * 两态状态机：idle ->（前缀键）-> prefix ->（一个键）-> idle。
  * prefix 态下认不出的键：消费掉并回 idle（tmux 行为），不透传。
  */
 export class KeyDispatcher {
@@ -106,6 +136,10 @@ export class KeyDispatcher {
       if (stroke[field]) {
         return { kind: 'action', action: { type: 'focusPane', direction } }
       }
+    }
+    const hjkl = stroke.ctrl ? undefined : HJKL[stroke.input]
+    if (hjkl !== undefined) {
+      return { kind: 'action', action: { type: 'focusPane', direction: hjkl } }
     }
     const action = this.table.bindings[stroke.input]
     if (action) return { kind: 'action', action }

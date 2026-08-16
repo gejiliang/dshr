@@ -15,6 +15,8 @@ export interface Tab {
   /** null = 所有 pane 都被关了（空 tab，等待新会话）。 */
   readonly root: LayoutNode | null
   readonly focusedPaneId: string | null
+  /** zoom 中的 pane（prefix+z）；null = 未 zoom。zoom 的 pane 独占整个内容区。 */
+  readonly zoomedPaneId: string | null
 }
 
 let counter = 0
@@ -30,6 +32,7 @@ export function createTab(workspaceId: string, title?: string): Tab {
     workspaceId,
     root: pane,
     focusedPaneId: pane.paneId,
+    zoomedPaneId: null,
     ...(title !== undefined ? { title } : {}),
   }
 }
@@ -45,7 +48,9 @@ export function closeTabPane(tab: Tab, paneId: string): { tab: Tab; closedSessio
         ? null
         : firstPaneId(r.root)
       : tab.focusedPaneId
-  return { tab: { ...tab, root: r.root, focusedPaneId }, closedSessionId: r.closedSessionId, found: true }
+  // 被关的恰是 zoom 中的 pane：zoom 一并解除
+  const zoomedPaneId = tab.zoomedPaneId === paneId ? null : tab.zoomedPaneId
+  return { tab: { ...tab, root: r.root, focusedPaneId, zoomedPaneId }, closedSessionId: r.closedSessionId, found: true }
 }
 
 export function firstPaneId(root: LayoutNode): string {

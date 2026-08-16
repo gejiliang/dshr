@@ -12,15 +12,18 @@ test('前缀键被消费，不透传', () => {
   assert.equal(d.awaitingPrefixFollowUp, true)
 })
 
-test('Ctrl-B c → newTab；n/p → 切 tab；%/" → 分割；x → 关 pane；s → 侧栏', () => {
+test('herdr 键位：c/n/p tab，v/- 分割，x 关，b 侧栏，z zoom，a agents，? 帮助', () => {
   const cases: Array<[string, string]> = [
     ['c', 'newTab'],
     ['n', 'nextTab'],
     ['p', 'prevTab'],
-    ['%', 'splitVertical'],
-    ['"', 'splitHorizontal'],
+    ['v', 'splitVertical'],
+    ['-', 'splitHorizontal'],
     ['x', 'closePane'],
-    ['s', 'toggleSidebar'],
+    ['b', 'toggleSidebar'],
+    ['z', 'toggleZoom'],
+    ['a', 'sidebarAgentsView'],
+    ['?', 'showHelp'],
   ]
   for (const [input, type] of cases) {
     const d = new KeyDispatcher()
@@ -31,19 +34,61 @@ test('Ctrl-B c → newTab；n/p → 切 tab；%/" → 分割；x → 关 pane；
   }
 })
 
-test('Ctrl-B w / W -> 工作区选择 / 新建工作区', () => {
-  for (const [input, type] of [['w', 'selectWorkspace'], ['W', 'newWorkspace']] as Array<[string, string]>) {
+test('prefix+1..9 按序号切 tab', () => {
+  for (const digit of ['1', '5', '9']) {
+    const d = new KeyDispatcher()
+    d.dispatch(PREFIX)
+    const r = d.dispatch({ input: digit })
+    assert.equal(r.kind, 'action', digit)
+    if (r.kind === 'action' && r.action.type === 'selectTab') {
+      assert.equal(r.action.index, Number(digit))
+    } else {
+      assert.fail(`expected selectTab for ${digit}`)
+    }
+  }
+})
+
+test('Ctrl-B w / N -> 工作区选择 / 新建工作区；W 不再绑定', () => {
+  for (const [input, type] of [['w', 'selectWorkspace'], ['N', 'newWorkspace']] as Array<[string, string]>) {
     const d = new KeyDispatcher()
     d.dispatch(PREFIX)
     const r = d.dispatch({ input })
     assert.equal(r.kind, 'action', input)
     if (r.kind === 'action') assert.equal(r.action.type, type)
   }
-  // 大小写是两个不同的键
-  assert.notEqual(DEFAULT_KEY_TABLE.bindings['w'], DEFAULT_KEY_TABLE.bindings['W'])
+  assert.equal(DEFAULT_KEY_TABLE.bindings['W'], undefined, 'W（旧的新建工作区）必须解绑')
 })
 
-test('前缀 + 方向键 → focusPane', () => {
+test('prefix+s 留空不绑（herdr 那是设置，本版没有--肌肉记忆不许踩空）', () => {
+  assert.equal(DEFAULT_KEY_TABLE.bindings['s'], undefined)
+  const d = new KeyDispatcher()
+  d.dispatch(PREFIX)
+  const r = d.dispatch({ input: 's' })
+  assert.equal(r.kind, 'consumed', 's 被消费但不触发任何动作')
+  assert.equal(d.awaitingPrefixFollowUp, false)
+})
+
+test('前缀 + h/j/k/l -> focusPane（vim 方向）', () => {
+  const cases: Array<[string, string]> = [
+    ['h', 'left'],
+    ['j', 'down'],
+    ['k', 'up'],
+    ['l', 'right'],
+  ]
+  for (const [input, direction] of cases) {
+    const d = new KeyDispatcher()
+    d.dispatch(PREFIX)
+    const r = d.dispatch({ input })
+    assert.equal(r.kind, 'action', input)
+    if (r.kind === 'action' && r.action.type === 'focusPane') {
+      assert.equal(r.action.direction, direction)
+    } else {
+      assert.fail(`expected focusPane for ${input}`)
+    }
+  }
+})
+
+test('前缀 + 方向键仍是 focusPane（hjkl 之外的额外绑定）', () => {
   const d = new KeyDispatcher()
   d.dispatch(PREFIX)
   const r = d.dispatch({ input: '', leftArrow: true })
@@ -61,6 +106,7 @@ test('非前缀按键透传给会话输入框', () => {
     { input: 'a' },
     { input: 'x' }, // 裸 x 不是关 pane
     { input: 'b' }, // 不带 ctrl 不是前缀
+    { input: 'h' }, // 裸 h 是给会话的
     { input: '', upArrow: true }, // 裸方向键也透传
   ]) {
     const r = d.dispatch(stroke)
@@ -80,17 +126,18 @@ test('前缀序列完成后回到 idle：后续按键照常透传', () => {
 test('前缀后接不认识的键：消费掉，不透传，状态回 idle', () => {
   const d = new KeyDispatcher()
   d.dispatch(PREFIX)
-  const r = d.dispatch({ input: 'z' })
+  const r = d.dispatch({ input: 'y' })
   assert.equal(r.kind, 'consumed')
   assert.equal(d.awaitingPrefixFollowUp, false)
-  assert.equal(d.dispatch({ input: 'z' }).kind, 'passthrough')
+  assert.equal(d.dispatch({ input: 'y' }).kind, 'passthrough')
 })
 
-test('连着两个前缀键：第二个被视为前缀后的普通键而消费', () => {
+test('连着两个前缀键：第二个被当作前缀后的 b（开关侧栏）', () => {
   const d = new KeyDispatcher()
   d.dispatch(PREFIX)
   const r = d.dispatch(PREFIX)
-  assert.equal(r.kind, 'consumed')
+  assert.equal(r.kind, 'action')
+  if (r.kind === 'action') assert.equal(r.action.type, 'toggleSidebar')
   assert.equal(d.awaitingPrefixFollowUp, false)
 })
 

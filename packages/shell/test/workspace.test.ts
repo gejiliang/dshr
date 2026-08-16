@@ -111,7 +111,7 @@ test('Ctrl-B w 打开选择器；esc 取消，活动工作区不变', async () =
   stdin.write('\x1b') // esc
   await tick()
   assert.ok(!(lastFrame() ?? '').includes('选择工作区'), 'esc 关掉选择器')
-  assert.ok((lastFrame() ?? '').includes('▶ alpha'), '仍在 ws-1（侧栏标记没变）')
+  assert.ok((lastFrame() ?? '').includes('● alpha'), '仍在 ws-1（侧栏标记没变）')
 })
 
 test('选择器：数字键 + enter 切换活动工作区，侧栏标记跟着走', async () => {
@@ -125,8 +125,8 @@ test('选择器：数字键 + enter 切换活动工作区，侧栏标记跟着�
   stdin.write('\r') // 确认
   await tick()
   const frame = lastFrame() ?? ''
-  assert.ok(frame.includes('▶ beta'), '活动工作区切到 ws-2')
-  assert.ok(!frame.includes('▶ alpha'), 'ws-1 不再是活动工作区')
+  assert.ok(frame.includes('● beta'), '活动工作区切到 ws-2')
+  assert.ok(!frame.includes('● alpha'), 'ws-1 不再是活动工作区')
   assert.ok(!frame.includes('选择工作区'), '选择器已关')
 })
 
@@ -177,7 +177,7 @@ test('新建 tab / pane 的会话都挂到当前活动工作区', async () => {
 
   await prefix(stdin, 'c') // ws-1 第二个 tab
   await tick()
-  await prefix(stdin, '%') // ws-1 分割 pane
+  await prefix(stdin, 'v') // ws-1 分割 pane（herdr 键位）
   await tick()
 
   await prefix(stdin, 'w')
@@ -187,7 +187,7 @@ test('新建 tab / pane 的会话都挂到当前活动工作区', async () => {
   await tick()
   await prefix(stdin, 'c') // ws-2 新 tab
   await tick()
-  await prefix(stdin, '"') // ws-2 分割 pane
+  await prefix(stdin, '-') // ws-2 分割 pane（herdr 键位）
   await tick()
 
   assert.deepEqual(
@@ -197,12 +197,12 @@ test('新建 tab / pane 的会话都挂到当前活动工作区', async () => {
   )
 })
 
-test('Ctrl-B W：失败的业务错误亮在覆盖层里，不静默', async () => {
+test('Ctrl-B N：失败的业务错误亮在覆盖层里，不静默', async () => {
   const probe: Probe = { createSessionCalls: [], createWorkspaceCalls: [], prompts: [], composerInput: [] }
   const { stdin, lastFrame } = setup(probe)
   await tick()
 
-  await prefix(stdin, 'W')
+  await prefix(stdin, 'N')
   await tick()
   assert.ok((lastFrame() ?? '').includes('新建工作区'), '输入框已打开')
 
@@ -222,12 +222,12 @@ test('Ctrl-B W：失败的业务错误亮在覆盖层里，不静默', async () 
   assert.ok(!(lastFrame() ?? '').includes('新建工作区'))
 })
 
-test('Ctrl-B W：成功后切过去并自动开新会话', async () => {
+test('Ctrl-B N：成功后切过去并自动开新会话', async () => {
   const probe: Probe = { createSessionCalls: [], createWorkspaceCalls: [], prompts: [], composerInput: [] }
   const { stdin, lastFrame } = setup(probe)
   await tick()
 
-  await prefix(stdin, 'W')
+  await prefix(stdin, 'N')
   await tick()
   stdin.write('/tmp/gamma')
   stdin.write('\r')
@@ -235,7 +235,7 @@ test('Ctrl-B W：成功后切过去并自动开新会话', async () => {
 
   assert.deepEqual(probe.createWorkspaceCalls, ['/tmp/gamma'])
   const frame = lastFrame() ?? ''
-  assert.ok(frame.includes('▶ /tmp/gamma'), '新工作区已切为活动（fake 里 title=path）')
+  assert.ok(frame.includes('● /tmp/gamma'), '新工作区已切为活动（fake 里 title=path）')
   assert.ok(frame.includes('tabs=1'), '新工作区自动开了 1 个 tab')
   const last = probe.createSessionCalls[probe.createSessionCalls.length - 1]
   assert.ok(last !== undefined && last.workspaceId === 'ws-3', '新会话挂在新工作区下')
@@ -245,7 +245,7 @@ test('空路径不提交 createWorkspace', async () => {
   const probe: Probe = { createSessionCalls: [], createWorkspaceCalls: [], prompts: [], composerInput: [] }
   const { stdin, lastFrame } = setup(probe)
   await tick()
-  await prefix(stdin, 'W')
+  await prefix(stdin, 'N')
   await tick()
   stdin.write('\r')
   await tick()
@@ -262,12 +262,12 @@ test('侧栏直接渲染时标出活动工作区（ink-testing-library 断言）
     ],
   }
   const { lastFrame } = render(
-    h(Sidebar as never, { state, activeSessionId: null, width: 30, activeWorkspaceId: 'ws-2' }),
+    h(Sidebar as never, { state, activeSessionId: null, width: 30, activeWorkspaceId: 'ws-2', view: 'spaces' }),
   )
   const frame = lastFrame() ?? ''
-  assert.ok(frame.includes('▶ beta'), '活动工作区有 ▶ 标记')
-  assert.ok(!frame.includes('▶ alpha'), '非活动工作区没有标记')
+  assert.ok(frame.includes('● beta'), '活动工作区有 ● 标记')
+  assert.ok(!frame.includes('● alpha'), '非活动工作区没有标记')
   // 不传 activeWorkspaceId 也不炸（可选 prop）
-  const plain = render(h(Sidebar as never, { state, activeSessionId: null, width: 30 }))
-  assert.ok(!((plain.lastFrame() ?? '').includes('▶')), '不传则不标')
+  const plain = render(h(Sidebar as never, { state, activeSessionId: null, width: 30, view: 'spaces' }))
+  assert.ok(!((plain.lastFrame() ?? '').includes('●')), '不传则不标')
 })

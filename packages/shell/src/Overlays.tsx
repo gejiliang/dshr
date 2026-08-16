@@ -4,6 +4,7 @@
  */
 import { Box, Text } from 'ink'
 import type { ReactElement } from 'react'
+import { KEYBIND_ROWS } from './hint.js'
 import type { TextInputModel, WorkspacePickerModel } from './overlay.js'
 
 export function WorkspacePickerOverlay({ model }: { readonly model: WorkspacePickerModel }): ReactElement {
@@ -35,6 +36,22 @@ export function NewWorkspaceOverlay({
       <Text>{`路径: ${input.value}▏`}</Text>
       {error !== null ? <Text color="red">{`⚠ ${error}`}</Text> : null}
       <Text dimColor>输入路径后 enter 提交 · esc 取消</Text>
+    </Box>
+  )
+}
+
+/** `prefix+?` 的键位帮助：内容是 hint.ts 的纯数据表。 */
+export function HelpOverlay(): ReactElement {
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="cyan">
+      <Text bold>keybinds</Text>
+      {KEYBIND_ROWS.map((r) => (
+        <Box key={r.keys}>
+          <Text>{`${r.keys}`}</Text>
+          <Text dimColor>{`  ${r.label}`}</Text>
+        </Box>
+      ))}
+      <Text dimColor>esc 关闭</Text>
     </Box>
   )
 }
