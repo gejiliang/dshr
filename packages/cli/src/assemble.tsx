@@ -47,8 +47,18 @@ function ConversationAdapter({ view }: ShellConversationProps): ReactElement {
 }
 
 /** 裁决 2：shell 的 `focused` + `disabled` 都折算成 tui 的 `disabled`。 */
-function ComposerAdapter({ focused, disabled, onSubmit }: ShellComposerProps): ReactElement {
-  return <TuiComposer onSubmit={onSubmit} disabled={disabled === true || !focused} />
+function ComposerAdapter({ focused, disabled, acceptsKey, onSubmit }: ShellComposerProps): ReactElement {
+  // ⚠️ `acceptsKey` 必须透传下去。它是**按键到达那一刻**的判活函数，
+  // 而 `disabled` / `focused` 是上一次渲染的快照——只传后者会出两种毛病：
+  // 前缀动作之后紧接着的键被丢掉，以及 `Ctrl-B ?` 这类键被壳和输入框各收一次
+  // （帮助弹出来的同时 `?` 也被打进输入框）。两个都实测见过。
+  return (
+    <TuiComposer
+      onSubmit={onSubmit}
+      disabled={disabled === true || !focused}
+      {...(acceptsKey !== undefined ? { acceptsKey } : {})}
+    />
+  )
 }
 
 function makePendingPromptAdapter(

@@ -121,10 +121,16 @@ export function Sidebar({ state, activeSessionId, width, activeWorkspaceId, view
       {list}
       {/* 弹性空隙：把入口块压到底部 */}
       <Box flexGrow={1} minHeight={1} />
-      <Text>{justify(' new', 'menu', cw)}</Text>
+      {/*
+        入口块。保持 herdr 的 2×2 形状，但**每一格都写上触发键**。
+        原来 `new` / `menu` 只是两个字：按不动，也看不出该按什么——
+        长得像按钮却没有行为，比不画还糟。
+      */}
+      <Text>{justify(' new ^Bc', 'menu ^B? ', cw)}</Text>
       <Text dimColor>{'─'.repeat(cw)}</Text>
-      {/* agents 格是视图切换入口（prefix+a），当前就在 agents 视图时高亮 */}
-      <Text {...(view === 'agents' ? { bold: true, color: 'cyan' } : {})}>{justify(' agents', '', cw)}</Text>
+      <Text {...(view === 'agents' ? { bold: true, color: 'cyan' } : {})}>
+        {justify(' agents ^Ba', '', cw)}
+      </Text>
       <Text>{' '.repeat(cw)}</Text>
       <Text dimColor>{padEnd('', cw - 1) + '«'}</Text>
     </Box>

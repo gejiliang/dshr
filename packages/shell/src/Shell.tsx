@@ -274,6 +274,10 @@ export function Shell({ state, components, initialWorkspaceId, cwd, sidebarWidth
       ...(key.leftArrow ? { leftArrow: true } : {}),
       ...(key.rightArrow ? { rightArrow: true } : {}),
     }
+    // 同一个键 ink 会广播给所有 useInput，壳与输入框各看一次。
+    // **输入框的 handler 比壳先跑**（子组件先注册），那时 `awaitingPrefixFollowUp`
+    // 还是 true，所以前缀后续键会被输入框正确拒掉——不需要额外的「已消费」标志，
+    // 加了反而会拿上一拍的陈旧值拒掉下一个正常键（试过，三条测试当场变红）。
     const result = dispatcher.dispatch(stroke)
     if (result.kind === 'consumed') {
       forcePrefixTick((n) => n + 1) // 让底部提示栏出现
