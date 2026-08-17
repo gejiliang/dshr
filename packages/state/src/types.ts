@@ -57,6 +57,13 @@ export interface SessionSummary {
   pending?: PendingInteraction
   /** status 为 'error' 时的最近一条消息。 */
   error?: string
+  /** `session/queue` 帧的排队消息快照（placement === 'queued'）；空时不设。 */
+  queue?: readonly QueuedMessage[]
+  /**
+   * 会话事件流里见过 `plan/mode`。它的载荷形状**还没打到**（docs/gap-shapes.md §七），
+   * 所以这里只有「发生过」这一个比特，**不知道方向**（是进是出 plan 模式不得而知）。
+   */
+  planModeSeen?: true
 }
 
 export interface WorkspaceSummary {
@@ -65,6 +72,18 @@ export interface WorkspaceSummary {
   path: string
   /** host 的 durable 顺序。 */
   sessionIds: readonly SessionId[]
+}
+
+/** `todo/write` 快照里的一条。形状照抄上游 `TodoItem`（dsh-session types.d.ts）。 */
+export interface TodoEntry {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+}
+
+/** `session/queue` 帧里的一条排队消息（只留渲染要的：id + 纯文本）。 */
+export interface QueuedMessage {
+  id: string
+  text: string
 }
 
 /** 会话视图里的一项。工具调用**折叠成一行**，展开才看详情。 */
@@ -103,6 +122,38 @@ export type ConversationItem =
     }
   | { kind: 'error'; id: string; message: string }
   | { kind: 'notice'; id: string; text: string }
+  /**
+   * 一次 LLM 重试（`llm/retry`，退避结束时 `llm/retry-started` 用 retryId 配对置 started）。
+   * 字段名照抄实测载荷（docs/gap-shapes.md §二）；`code` 是 `failure.code` 分类，
+   * 原始报文 `failure.message` 不进这行。孤儿 retry-started 没有 code/maxRetries。
+   */
+  | {
+      kind: 'retry'
+      id: string
+      retryId: string
+      attempt: number
+      maxRetries?: number
+      code?: string
+      started: boolean
+    }
+  /** `todo/write` 的整表快照；last-write-wins，视图里永远只有一份（原地换新对象）。 */
+  | { kind: 'todo'; id: string; todos: readonly TodoEntry[] }
+  /** 一次斜杠命令的执行痕迹：`command/run` 开、`command/done` 按 commandId 收尾。 */
+  | {
+      kind: 'command'
+      id: string
+      commandId: string
+      name: string
+      args?: string
+      status: 'running' | 'ok' | 'error'
+      text?: string
+    }
+  /**
+   * 居中标题横线（`──── Compaction ────`）。
+   * `compaction/*` 的载荷形状**还没打到**（docs/gap-shapes.md §七），这里只认 `type`，
+   * 一段连续的 compaction 事件折成一条线。
+   */
+  | { kind: 'divider'; id: string; label: string }
 
 export interface ConversationView {
   readonly sessionId: SessionId

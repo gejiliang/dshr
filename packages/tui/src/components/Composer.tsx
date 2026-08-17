@@ -12,6 +12,11 @@ export interface ComposerProps {
   preset?: string
   model?: string
   provider?: string
+  /**
+   * 会话里见过 `plan/mode` 事件（形状还没打到，只有「发生过」一个比特——
+   * 在模式位留一个 muted 的 `· plan/mode` 标记，不断言是进还是出）。
+   */
+  planModeSeen?: boolean
   /** 输入面板宽度（列）。缺省用终端宽度（减去右侧信息列后由外层传入）。 */
   width?: number
   /** agent 在跑时，快捷键提示行的左侧换成 `esc interrupt`（opencode 的运行态提示）。 */
@@ -120,6 +125,7 @@ export function Composer({
   preset,
   model,
   provider,
+  planModeSeen = false,
   width: widthProp,
   working = false,
   onInterrupt,
@@ -278,6 +284,7 @@ export function Composer({
         {bar}
         <Text backgroundColor={theme.backgroundElement}>
           <Text color={theme.secondary}>  {titlecase(preset ?? 'standard')}</Text>
+          {planModeSeen ? <Text color={theme.textMuted}> · plan/mode</Text> : null}
           {model !== undefined ? (
             <>
               <Text color={theme.textMuted}> · </Text>

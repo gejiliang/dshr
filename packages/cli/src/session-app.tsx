@@ -11,7 +11,7 @@
  */
 import type { DshrClient } from '@dshr/protocol'
 import type { DshrState, SessionId } from '@dshr/state'
-import { Composer, Conversation, Footer, Logo, PendingPrompt, Sidebar } from '@dshr/tui'
+import { Composer, Conversation, Footer, Logo, PendingPrompt, QueueDock, Sidebar } from '@dshr/tui'
 import { Box, useStdout } from 'ink'
 import { useEffect, useReducer, type ReactElement } from 'react'
 
@@ -79,6 +79,7 @@ export function SessionApp({
   const summary = state.sessions.get(sessionId)
   const pending = summary?.pending
   const preset = summary?.agentPreset
+  const queue = summary?.queue ?? []
   const { tokens, percent } = contextUsage(state, sessionId)
   const cwd = summary?.cwd ?? process.cwd()
   const sidebarVisible = columns >= SIDEBAR_MIN_COLUMNS
@@ -113,6 +114,7 @@ export function SessionApp({
         {...(preset !== undefined ? { preset } : {})}
         {...(model !== undefined ? { model } : {})}
         {...(provider !== undefined ? { provider } : {})}
+        planModeSeen={summary?.planModeSeen === true}
         width={contentWidth}
         working={summary?.status === 'working'}
         onInterrupt={() => void state.cancel(sessionId)}
@@ -140,9 +142,11 @@ export function SessionApp({
                 maxRows={conversationRows}
               />
               {/* 对话顶格、输入框钉在底部（上游 scrollbox flexGrow 把 prompt 压到底）；
-                  之间留一行空（上游消息区 paddingBottom=1）。 */}
+                  之间留一行空（上游消息区 paddingBottom=1）。
+                  排队消息徽章钉在输入框正上方（opencode 的 QueueDock 位置）。 */}
               <Box flexGrow={1} />
               <Box height={1} flexShrink={0} />
+              {queue.length > 0 ? <QueueDock items={queue} /> : null}
               {promptElement}
             </>
           )}
