@@ -330,7 +330,17 @@ export function SessionApp({
   const { tokens, percent } = contextUsage(state, activeSessionId)
   const cwd = summary?.cwd ?? process.cwd()
   const sidebarVisible = columns >= SIDEBAR_MIN_COLUMNS
-  const contentWidth = columns - (sidebarVisible ? 42 : 0) - 4
+  /**
+   * 会话列的**列宽**（含左右 padding 2）。
+   *
+   * ⚠️ 必须钉死，不能只给 `flexGrow={1}`。踩过：一条很长又不好折行的正文
+   * （比如整段没有换行的助手输出）会让 yoga 按内容的固有宽度把这一列撑开，
+   * 超过它应得的份额，**把右侧信息列整个挤出屏幕右缘**——现象是侧栏凭空消失、
+   * 正文按满宽折行。侧栏自己的 `flexShrink={0}` 挡不住这个，因为问题出在兄弟节点撑大。
+   * 复现：150×45 下连发十轮，每轮回一段长正文。
+   */
+  const contentColumnWidth = columns - (sidebarVisible ? 42 : 0)
+  const contentWidth = contentColumnWidth - 4
 
   // 空会话（还没说过话）：中央 logo（opencode Home 的样子）。
   const empty = view.items.every((item) => item.kind !== 'user' && item.kind !== 'assistant')
@@ -494,7 +504,13 @@ export function SessionApp({
   return (
     <Box flexDirection="column" flexGrow={1} minHeight={rows}>
       <Box flexDirection="row" flexGrow={1} minHeight={0}>
-        <Box flexDirection="column" flexGrow={1} paddingLeft={2} paddingRight={2}>
+        <Box
+          flexDirection="column"
+          width={contentColumnWidth}
+          flexShrink={0}
+          paddingLeft={2}
+          paddingRight={2}
+        >
           {dialogElement !== null ? (
             <>
               {/* 对话框整区接管会话区，内部布局逐项照搬 opencode。 */}
