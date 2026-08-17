@@ -17,6 +17,8 @@ export type {
   DialogSelectOption,
   DialogSelectProps,
 } from './components/DialogSelect.js'
+export { DialogPrompt } from './components/DialogPrompt.js'
+export type { DialogPromptProps } from './components/DialogPrompt.js'
 export { CommandPalette } from './components/CommandPalette.js'
 export type { CommandPaletteProps } from './components/CommandPalette.js'
 export { createCommandRegistry } from './commands.js'

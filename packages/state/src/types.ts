@@ -8,6 +8,7 @@ import type {
   DshrClient,
   HostFrame,
   MuxFrame,
+  ResponseValue,
   RpcId,
   Unsubscribe,
 } from '@dshr/protocol'
@@ -44,6 +45,10 @@ export interface SessionSummary {
   title?: string
   cwd?: string
   status: AgentStatus
+  /** 当前模型选择。`session.models` 的 `current` 播种、`session.selectModel` 成功后更新。 */
+  model?: string
+  /** 同 `model` 一对。 */
+  provider?: string
   /**
    * `host/session-added` 的 `blank` 恒为 true（帧在 session/created 时就发）。
    * 第一次 `host/session-status{running:true}` 时翻掉它；
@@ -65,6 +70,23 @@ export interface WorkspaceSummary {
   path: string
   /** host 的 durable 顺序。 */
   sessionIds: readonly SessionId[]
+}
+
+/** `session.models` 的返回——直接就是模型对话框的数据结构，不转译（docs/gap-shapes.md §八）。 */
+export type SessionModels = ResponseValue<'session.models'>
+/** `agentPreset.list` 的一行（dsh 实际只有 standard/code/minimal/cordis 四个）。 */
+export type AgentPresetEntry = ResponseValue<'agentPreset.list'>['presets'][number]
+
+/** 会话选择对话框的一行（`session.list` 映射而来，按 updatedAt 降序）。 */
+export interface SessionListEntry {
+  sessionId: SessionId
+  /** 投影里的标题；还没有时缺省。 */
+  title?: string
+  updatedAt: number
+  running: boolean
+  blank: boolean
+  cwd?: string
+  agentPreset?: string
 }
 
 /** 会话视图里的一项。工具调用**折叠成一行**，展开才看详情。 */
@@ -143,6 +165,39 @@ export interface DshrState {
   createSession(input: { cwd: string; workspaceId?: WorkspaceId; agentPreset?: string }): Promise<SessionId>
   prompt(sessionId: SessionId, text: string): Promise<void>
   cancel(sessionId: SessionId): Promise<void>
+
+  /** 拉这个会话的模型目录（同时用 `current` 播种 summary 的 model/provider）。 */
+  listModels(sessionId: SessionId): Promise<SessionModels>
+  /** 切模型。成功后 summary 的 model/provider 跟着变。 */
+  selectModel(sessionId: SessionId, provider: string, model: string): Promise<void>
+
+  /** 部署的预设名册（root-precedence 顺序，上游原样）。 */
+  listPresets(): Promise<readonly AgentPresetEntry[]>
+  /**
+   * 切预设。⚠️ 载荷键是 `agentPreset`，**不是 `presetId`**（实测，docs/gap-shapes.md §八）；
+   * 且只在会话 blank（还没跑过一轮）时允许，否则 host 回 `agent-preset-locked`。
+   */
+  selectPreset(sessionId: SessionId, agentPreset: string): Promise<void>
+
+  /**
+   * 重命名。返回的 `{ title, seq }` 直接落进 title 投影格
+   * （上游注释明说这就是给调用方 settle 用的），不等推送帧。
+   */
+  renameSession(sessionId: SessionId, title: string): Promise<void>
+  /**
+   * 从最近一个已完成轮分叉出一个新会话，返回新 sessionId。
+   * 没有已完成轮时 host 回 `fork-unavailable`（错误原样抛出，调用方负责可读提示）。
+   */
+  forkSession(sessionId: SessionId): Promise<SessionId>
+
+  /** 会话选择对话框的列表——**走 `session.list`**（search 可能被部署关掉，不能依赖）。 */
+  listSessions(): Promise<readonly SessionListEntry[]>
+  /**
+   * `session.search` 的增强过滤：返回匹配内容的 sessionId 集合。
+   * **部署关掉 search 时返回 undefined**（实测：openAt "never" 的部署直接报错），
+   * 调用方据此退回本地过滤——没有它必须照样能用。
+   */
+  searchSessions(query: string): Promise<readonly SessionId[] | undefined>
 
   answerApproval(sessionId: SessionId, outcome: ApprovalOutcome): Promise<void>
   answerQuestion(sessionId: SessionId, answers: unknown): Promise<void>

@@ -22,6 +22,7 @@ import type {
 } from '@dshr/protocol'
 import { Conversation, type ProjectionsBlock } from './conversation.js'
 import type {
+  AgentPresetEntry,
   AgentStatus,
   ApprovalOutcome,
   ConversationView,
@@ -29,6 +30,8 @@ import type {
   DshrState,
   PendingInteraction,
   SessionId,
+  SessionListEntry,
+  SessionModels,
   SessionSummary,
   WorkspaceId,
   WorkspaceSummary,
@@ -52,6 +55,8 @@ interface SessionRecord {
   pending: Map<RpcId, PendingInteraction>
   /** 泛型投影值表，higher-seq-wins。 */
   projections: Map<string, { value: unknown; seq: number }>
+  /** 当前模型选择；`session.models` 播种、`session.selectModel` 成功后更新。 */
+  model?: { provider: string; model: string }
 }
 
 function rpcFailure(method: string, error: RpcError): Error {
@@ -177,6 +182,86 @@ class DshrStateImpl implements DshrState {
   async cancel(sessionId: SessionId): Promise<void> {
     const res = await this.client.call('session.cancel', { sessionId })
     if (!res.ok) throw rpcFailure('session.cancel', res.error)
+  }
+
+  async listModels(sessionId: SessionId): Promise<SessionModels> {
+    const res = await this.client.call('session.models', { sessionId })
+    if (!res.ok) throw rpcFailure('session.models', res.error)
+    // `current` 是这个会话模型选择的权威读数——顺手播种，footer/composer 立刻有数。
+    const record = this.ensureRecord(sessionId)
+    record.model = { provider: res.value.current.provider, model: res.value.current.model }
+    this.refreshSummary(record)
+    return res.value
+  }
+
+  async selectModel(sessionId: SessionId, provider: string, model: string): Promise<void> {
+    const res = await this.client.call('session.selectModel', { sessionId, provider, model })
+    if (!res.ok) throw rpcFailure('session.selectModel', res.error)
+    const record = this.ensureRecord(sessionId)
+    record.model = { provider: res.value.selected.provider, model: res.value.selected.model }
+    this.refreshSummary(record)
+  }
+
+  async listPresets(): Promise<readonly AgentPresetEntry[]> {
+    const res = await this.client.call('agentPreset.list', {})
+    if (!res.ok) throw rpcFailure('agentPreset.list', res.error)
+    return res.value.presets
+  }
+
+  async selectPreset(sessionId: SessionId, agentPreset: string): Promise<void> {
+    // ⚠️ 载荷键是 `agentPreset`，不是 `presetId`——猜错过一次，实测确认（docs/gap-shapes.md §八）。
+    const res = await this.client.call('agentPreset.select', { sessionId, agentPreset })
+    if (!res.ok) throw rpcFailure('agentPreset.select', res.error)
+    const record = this.ensureRecord(sessionId)
+    record.agentPreset = res.value.agentPreset
+    this.refreshSummary(record)
+  }
+
+  async renameSession(sessionId: SessionId, title: string): Promise<void> {
+    const res = await this.client.call('session.rename', { sessionId, title })
+    if (!res.ok) throw rpcFailure('session.rename', res.error)
+    const record = this.ensureRecord(sessionId)
+    // 上游注释：返回的 title/seq 就是给调用方 settle 投影格用的，不等 `session/projection` 推送帧。
+    this.applyProjection(record, 'title', res.value.title, res.value.seq)
+    this.refreshSummary(record)
+  }
+
+  async forkSession(sessionId: SessionId): Promise<SessionId> {
+    const res = await this.client.call('session.fork', { sessionId })
+    if (!res.ok) throw rpcFailure('session.fork', res.error)
+    return res.value.sessionId
+  }
+
+  async listSessions(): Promise<readonly SessionListEntry[]> {
+    const res = await this.client.call('session.list', {})
+    if (!res.ok) throw rpcFailure('session.list', res.error)
+    const entries: SessionListEntry[] = []
+    for (const item of res.value.items) {
+      // 顺手把记录刷到最新（与 rebaseline 同一条路径），再从记录里取标题。
+      this.applyListItem(item)
+      const record = this.records.get(item.sessionId)
+      const titleCell = record?.projections.get('title')
+      entries.push({
+        sessionId: item.sessionId,
+        updatedAt: item.updatedAt,
+        running: item.running,
+        blank: item.blank,
+        ...(titleCell !== undefined && typeof titleCell.value === 'string'
+          ? { title: titleCell.value }
+          : {}),
+        ...(item.cwd !== undefined ? { cwd: item.cwd } : {}),
+        ...(item.agentPreset !== undefined ? { agentPreset: item.agentPreset } : {}),
+      })
+    }
+    return entries
+  }
+
+  async searchSessions(query: string): Promise<readonly SessionId[] | undefined> {
+    const res = await this.client.call('session.search', { query })
+    // 部署关掉 search 时（实测 openAt "never"）返回业务错误而不是抛——
+    // 两种都归一为 undefined：不可用，退回本地过滤。
+    if (!res.ok) return undefined
+    return res.value.items.map((item) => item.sessionId)
   }
 
   async answerApproval(sessionId: SessionId, outcome: ApprovalOutcome): Promise<void> {
@@ -466,6 +551,7 @@ class DshrStateImpl implements DshrState {
       ...(record.parentSessionId !== undefined ? { parentSessionId: record.parentSessionId } : {}),
       ...(record.origin !== undefined ? { origin: record.origin } : {}),
       ...(record.agentPreset !== undefined ? { agentPreset: record.agentPreset } : {}),
+      ...(record.model !== undefined ? { model: record.model.model, provider: record.model.provider } : {}),
       ...(pending !== undefined ? { pending } : {}),
       ...(record.error !== undefined ? { error: record.error } : {}),
     }

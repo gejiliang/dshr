@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useReducer, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { theme } from '../theme.js'
 import { truncate, when } from '../text-utils.js'
@@ -18,7 +18,10 @@ export interface DialogSelectOption {
 
 export interface DialogSelectAction {
   readonly label: string
+  /** 目前只认 `ctrl+<字母>`（重命名的 ctrl+r 就是这个形状）。 */
   readonly key: string
+  /** 触发时带上**当前高亮项**的 value（列表为空时为 undefined）。 */
+  readonly onTrigger?: (selectedValue: string | undefined) => void
 }
 
 export interface DialogSelectProps {
@@ -33,6 +36,12 @@ export interface DialogSelectProps {
   readonly placeholder?: string
   /** 列表窗口高度（行）；超出时窗口跟随选中项滚动。不给则不截断。 */
   readonly maxHeight?: number
+  /**
+   * 远程搜索增强（可选）：有输入时调用，返回匹配项的 value 序；
+   * 返回 undefined 或抛错都视为「不可用」，**退回本地过滤**——
+   * 本部署把 session.search 关掉时（openAt "never"）就是这条路。
+   */
+  readonly remoteSearch?: (query: string) => Promise<readonly string[] | undefined>
 }
 
 /**
@@ -84,6 +93,12 @@ export function filterOptions(
   return scored.map((s) => s.option)
 }
 
+/** 动作条键位（`ctrl+<字母>`）是否命中这次按键。 */
+function matchesActionKey(binding: string, input: string, ctrl: boolean): boolean {
+  const match = /^ctrl\+([a-z])$/.exec(binding)
+  return match !== null && ctrl && input.toLowerCase() === match[1]
+}
+
 type Row =
   | { readonly kind: 'blank'; readonly key: string }
   | { readonly kind: 'category'; readonly key: string; readonly name: string }
@@ -128,6 +143,7 @@ export function DialogSelect({
   onCancel,
   placeholder = 'Search',
   maxHeight,
+  remoteSearch,
 }: DialogSelectProps) {
   const [state, setState] = useState({ query: '', selected: 0 })
   // useInput 回调闭包可能过期、连续按键之间渲染未必已提交，
@@ -137,6 +153,57 @@ export function DialogSelect({
   const apply = (next: { query: string; selected: number }) => {
     stateRef.current = next
     setState(next)
+    if (next.query !== '') requestRemote(next.query)
+  }
+
+  // ── 远程搜索（增强，可选）─────────────────────────────────────
+  // latest-query-wins：token 过期即丢。不可用（undefined/抛错）标记 broken，
+  // 本对话框生命周期内退回本地过滤——search 被部署关掉时每次问都是错，不必重试。
+  const remoteRef = useRef<{ query: string; values: readonly string[] } | null>(null)
+  const brokenRef = useRef(false)
+  const requestedRef = useRef<string | null>(null)
+  const tokenRef = useRef(0)
+  const [, bumpRemote] = useReducer((n: number) => n + 1, 0)
+  function requestRemote(query: string): void {
+    if (remoteSearch === undefined || brokenRef.current) return
+    if (requestedRef.current === query) return
+    requestedRef.current = query
+    const token = ++tokenRef.current
+    void Promise.resolve(remoteSearch(query)).then(
+      (values) => {
+        if (token !== tokenRef.current) return
+        if (values === undefined) {
+          brokenRef.current = true
+          remoteRef.current = null
+        } else {
+          remoteRef.current = { query, values }
+        }
+        bumpRemote()
+      },
+      () => {
+        if (token !== tokenRef.current) return
+        brokenRef.current = true
+        remoteRef.current = null
+        bumpRemote()
+      },
+    )
+  }
+
+  /** 当前 query 下的可见项：远程结果在手按它过滤排序，否则本地模糊过滤。 */
+  function visibleFor(query: string): DialogSelectOption[] {
+    const remote = remoteRef.current
+    if (query !== '' && remote !== null && remote.query === query) {
+      // 远程搜索是「有输入」态，与本地规则一致：丢掉 Suggested 分组。
+      const pool = options.filter((o) => o.category !== 'Suggested')
+      const byValue = new Map(pool.map((o) => [o.value, o]))
+      const out: DialogSelectOption[] = []
+      for (const value of remote.values) {
+        const option = byValue.get(value)
+        if (option !== undefined) out.push(option)
+      }
+      return out
+    }
+    return filterOptions(options, query)
   }
 
   useInput((input, key) => {
@@ -145,8 +212,17 @@ export function DialogSelect({
       onCancel()
       return
     }
+    if (actions !== undefined) {
+      for (const action of actions) {
+        if (action.onTrigger !== undefined && matchesActionKey(action.key, input, key.ctrl)) {
+          const visible = visibleFor(query)
+          action.onTrigger(visible[Math.min(selected, Math.max(0, visible.length - 1))]?.value)
+          return
+        }
+      }
+    }
     if (key.return) {
-      const visible = filterOptions(options, query)
+      const visible = visibleFor(query)
       const option = visible[Math.min(selected, visible.length - 1)]
       if (option !== undefined) onSelect(option.value)
       return
@@ -156,7 +232,7 @@ export function DialogSelect({
       return
     }
     if (key.downArrow) {
-      const visible = filterOptions(options, query)
+      const visible = visibleFor(query)
       apply({ query, selected: Math.min(Math.max(0, visible.length - 1), selected + 1) })
       return
     }
@@ -168,7 +244,7 @@ export function DialogSelect({
     apply({ query: query + input.replace(/\r/g, ''), selected: 0 })
   })
 
-  const visible = filterOptions(options, state.query)
+  const visible = visibleFor(state.query)
   const selected = Math.min(state.selected, Math.max(0, visible.length - 1))
   const rows = buildRows(visible)
 
