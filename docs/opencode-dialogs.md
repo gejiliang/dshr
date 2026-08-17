@@ -135,6 +135,23 @@ tab agents  ctrl+p commands
 
 ## 四、dshr 必然不同的地方
 
+### 不做浮层 —— 这是能力差异，不是偷懒
+
+opencode 的对话框是**渲染器级的浮层**：上面每张图里都能看见浮层左边露出的
+composer（`┃  Ask`）和从两侧穿出去的 `▀` 横线。它自带终端渲染器
+（`<box>`/`<text>`/`<scrollbox>`），能做绝对定位与合成。
+
+**dshr 用的是 ink，ink 没有浮层**——没有绝对定位，也没有 z 序。
+要做出上面那种效果只能自己合成字符缓冲区，等于重写渲染器。
+
+**因此 dshr 的对话框是整区接管**：打开时对话框占据会话区，composer 与底部栏保留。
+**内部布局逐项照搬**（标题行 + `esc`、`Search`、分类、条目、`●` gutter、底部动作条），
+只是不浮在内容上面。
+
+改这条判断前先问：ink 6 有没有出浮层原语；没有就别改。
+
+### 其余
+
 - opencode 的 `Build` / `Plan` 在 dsh 这边是 **agentPreset**，名字不一样（dsh 默认 `Standard`）
 - `Install plugin` / `Switch theme` / `Toggle debug panel` / `Open docs` 是 opencode 自己的，dshr 没有
 - opencode 的会话列表带 pin，dsh 没有这个概念；dsh 有的是 `workspace.archiveSession`，
