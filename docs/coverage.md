@@ -22,7 +22,8 @@
 
 | 面 | 覆盖 | 说明 |
 |---|---|---|
-| RPC 方法 | 9 / 51 | `host.close` 是 dshr 自己 spawn 的 host 对象上的本地方法，**不是 RPC**，不计入 |
+| RPC 方法 | 16 / 51 | `host.close` 是 dshr 自己 spawn 的 host 对象上的本地方法，**不是 RPC**，不计入；
+    grep 会多匹配到命令注册表里的 `session.interrupt` / `session.switch`（命令名，不是 RPC），不计 |
 | 下行帧 | 19 / 19 | MuxFrame 10 + HostFrame 9，**全接了** |
 | 会话事件 | 8 / 39 | 上游 `known-event-types.js` 是权威清单 |
 
@@ -60,7 +61,9 @@ workspace 列表/创建/重命名、上下文 token、往 herdr 报 idle/working
 | `command/run` `command/done` | 不画 | 斜杠命令的执行痕迹，走工具行的形状 |
 | `subagent/descriptor` | 不画 | `✓ General Task — <描述>` + `↳` 子行；未完图标 `│`，完成 `✓` |
 | `goal/change` | 不画 | 通知行（E 批） |
-| ~~`hook/invoked` `hook/result`~~ | **本部署上不可能触发**，见下 | — |
+| `session/queue` | **帧进了 switch 就被 `break` 丢掉**，state 根本没存 | 反色徽章 ` QUEUED `，底色用 agent 色 |
+| `session/jobs` | 同上，被丢掉——**后台任务在界面上完全不存在** | 见 D 批 |
+| ~~`hook/invoked` `hook/result`~~ | **本部署上不可能触发** | — |
 | ~~`schedule/change`~~ | 同上 | — |
 
 > **`hook/*` 与 `schedule/change` 不实现，理由是实测的**：
@@ -74,8 +77,6 @@ workspace 列表/创建/重命名、上下文 token、往 herdr 报 idle/working
 > 2. 用**独立的 `DSH_HOME`** 起一台自己的 host（别动用户的 `~/.dsh`），配一个 hook
 > 3. `node tools/probe-gaps.mjs` 打出真实载荷，补进 `gap-shapes.md`
 > 4. 再写渲染
-| `session/queue` | **帧进了 switch 就被 `break` 丢掉**，state 根本没存 | 反色徽章 ` QUEUED `，底色用 agent 色 |
-| `session/jobs` | 同上，被丢掉——**后台任务在界面上完全不存在** | 见下 |
 
 > ⚠️ `session/queue` 与 `session/jobs` 的措辞要准：不是「收到了没画」，
 > 是 `packages/state/src/state.ts` 里这两个 case 直接 `break`，**没有任何存储**。
@@ -97,15 +98,18 @@ workspace 列表/创建/重命名、上下文 token、往 herdr 报 idle/working
 
 键位（opencode 实测）：`ctrl+p` 开面板；`tab` **就地循环** agent preset（不是对话框）。
 
-### C 批 —— 会话与模型
+### C 批 —— 会话与模型（2026-08-17 落地）
 
 | 方法 | 用途 | 展现 |
 |---|---|---|
-| `session.models` `session.selectModel` | 切模型 | `Select model` 对话框，当前项 `●` 占位标记 |
-| `agentPreset.list` `select` `read` `copy` `openDocument` `remove` | 切预设 | `tab` 就地循环 + 面板项 |
-| `session.list` `session.search` | 切会话 | `Sessions` 对话框，底部动作 `pin/unpin`／`delete`／`rename` |
-| `session.rename` | 重命名 | 对话框内 `ctrl+r` |
-| `session.fork` | 分叉 | 面板项 |
+| `session.models` `session.selectModel` | 切模型 | ✅ `Select model` 对话框：groups→category、name→标题 + muted provider、当前项 `●`；选中即切，composer/footer 跟着变（state 播种 summary.model/provider） |
+| `agentPreset.list` `select` | 切预设 | ✅ **两个入口**：`tab` 就地循环（composer 那行原地变，实测 Standard→Code→Minimal→Cordis）+ 面板项 `Switch agent preset` 弹对话框。⚠️ host 只允许 blank 会话切（`agent-preset-locked`），被拒时出可读提示 |
+| `session.list` `session.search` | 切会话 | ✅ `Sessions` 对话框走 `session.list`；`search` 是增强（本部署实测关着，自动退回本地过滤）。底部动作条只有 `rename ctrl+r`——**dsh 没有 pin，delete 归 herdr，不造** |
+| `session.rename` | 重命名 | ✅ 会话列表里 `ctrl+r` 弹 `DialogPrompt`（单行输入）；返回的 `{title, seq}` 直接 settle 投影格 |
+| `session.fork` | 分叉 | ✅ 面板项；成功切到分叉会话，没有已完成轮时显示可读的 `fork-unavailable` 提示，不静默失败 |
+
+`agentPreset.read` / `copy` / `openDocument` / `remove` 是写作面（loopback 钉死的特权方法），
+C 批没做——面板只放动词，不画按不动的按钮。
 
 ### D 批 —— 输入类
 

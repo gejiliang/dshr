@@ -24,6 +24,11 @@ export interface ComposerProps {
   /** esc 中断当前轮。 */
   onInterrupt?: () => void
   /**
+   * `tab` **就地循环** agent preset，不弹对话框（opencode 实测：`Build` ↔ `Plan`
+   * 在 composer 那行原地变，见 docs/opencode-dialogs.md 键位一节）。不传则 tab 被吞掉。
+   */
+  onCyclePreset?: () => void
+  /**
    * **按键到达那一刻**再问一次「现在该不该收这个键」。
    *
    * ⚠️ 光靠 `disabled` 这个 prop 不够：它是**上一次渲染**的值，而 ink 是异步渲染。
@@ -129,6 +134,7 @@ export function Composer({
   width: widthProp,
   working = false,
   onInterrupt,
+  onCyclePreset,
   acceptsKey,
 }: ComposerProps) {
   const { stdout } = useStdout()
@@ -163,7 +169,10 @@ export function Composer({
         onInterrupt?.()
         return
       }
-      if (key.tab) return
+      if (key.tab) {
+        onCyclePreset?.()
+        return
+      }
       if (key.return) {
         if (key.shift) {
           apply(insertText(current, at, '\n'))
@@ -300,12 +309,24 @@ export function Composer({
         <Text color={theme.backgroundElement}>{'▀'.repeat(Math.max(0, width - 1))}</Text>
       </Text>
       {/* 快捷键提示行 */}
-      <Box justifyContent={working ? 'space-between' : 'flex-end'}>
+      <Box justifyContent={working || onCyclePreset !== undefined ? 'space-between' : 'flex-end'}>
         {working ? (
           <Text>
             <Text color={theme.text}>… esc </Text>
             <Text color={theme.textMuted}>interrupt</Text>
           </Text>
+        ) : onCyclePreset !== undefined ? (
+          // opencode 空状态提示行实测：`tab agents  ctrl+p commands`
+          <Box gap={2}>
+            <Text>
+              <Text color={theme.text}>tab </Text>
+              <Text color={theme.textMuted}>preset</Text>
+            </Text>
+            <Text>
+              <Text color={theme.text}>ctrl+p </Text>
+              <Text color={theme.textMuted}>commands</Text>
+            </Text>
+          </Box>
         ) : null}
         <Box gap={2}>
           <Text>

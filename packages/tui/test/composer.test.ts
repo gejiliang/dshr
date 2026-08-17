@@ -192,3 +192,35 @@ test('hintFor / insertText 纯函数', () => {
   assert.deepEqual(insertText('ac', 1, 'b'), { text: 'abc', cursor: 2 })
   assert.deepEqual(insertText('ab', 2, '\ncd'), { text: 'ab\ncd', cursor: 5 })
 })
+
+test('tab 就地循环预设：给了 onCyclePreset 就调它，提示行出现 tab preset / ctrl+p commands', async (t) => {
+  t.after(cleanup)
+  let cycled = 0
+  const app = render(h(Composer, { onSubmit: () => {}, onCyclePreset: () => cycled++ }))
+  await flush()
+  const out = outputOf(app)
+  assert.ok(out.includes('tab'), '提示行应有 tab')
+  assert.ok(out.includes('preset'), '提示行应有 preset')
+  assert.ok(out.includes('ctrl+p'), '提示行应有 ctrl+p')
+  app.stdin.write('\t')
+  await flush()
+  assert.strictEqual(cycled, 1, 'tab 应触发 onCyclePreset')
+  app.stdin.write('\t')
+  await flush()
+  assert.strictEqual(cycled, 2)
+  app.unmount()
+})
+
+test('没给 onCyclePreset 时 tab 被吞掉（老行为），提示行也没有 tab preset', async (t) => {
+  t.after(cleanup)
+  const submitted: string[] = []
+  const app = render(h(Composer, { onSubmit: (v) => submitted.push(v) }))
+  await flush()
+  assert.ok(!outputOf(app).includes('tab '), '没给 onCyclePreset 时不应提示 tab')
+  app.stdin.write('\t')
+  await flush()
+  app.stdin.write('\r')
+  await flush()
+  assert.deepEqual(submitted, [], 'tab 不应产生提交')
+  app.unmount()
+})
