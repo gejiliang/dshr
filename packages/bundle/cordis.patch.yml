@@ -55,6 +55,43 @@
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
+    # ⚠️ 下面这五行是 2026-08-18 补的：**光靠 `--dump-config` 发现不了它们缺**。
+    # 组合阶段不检查服务依赖，图 dump 得干干净净，一真启动就炸：
+    #   `@deepseek-ai/dsh-host-apiproxy: pending (waiting for service: directoryPicker)`
+    # 判据是 dsh 自己的 `dsh-web-app/cordis.patch.yml`——host 侧要哪些行以它为准。
+    # **改这份 patch 之后必须真 boot 一次，不能只 dump。**
+
+    # api-gateway 注入 directoryPicker（抽象服务，必须挂一个具体实现）。
+    #
+    # ⚠️ **这里不能照抄 web 的 `-auto`**。实测：`-auto` 自己 `waiting for service: webServer`
+    # ——它靠 bind host / SSH / display 去自选 native 还是 browse，而 dshr 刻意不挂 webserver。
+    # 照抄上游会让整棵树起不来。
+    #
+    # `-browse` 才是终端该用的：不需要 web server，把目录列表交给客户端画
+    # （对应 `host.listDirectory` 那一族 RPC）。`-native` 会弹 GUI 目录对话框，
+    # 对跑在 herdr pane 里的终端 surface 是错的。
+    - id: directory-picker
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+
+    # 预设名册。**没有这行 `agentPreset.list` / `select` 就没得用**——
+    # dshr 的切预设（tab 就地循环 + 面板项）直接失效。
+    - id: agent-presets
+      name: '@deepseek-ai/dsh-agent-presets'
+      config:
+        default: standard
+
+    # 当前 Loader 条目的只读投影，给受信任的 client RPC 用。
+    - id: plugin-inventory
+      name: '@deepseek-ai/dsh-host-plugin-inventory'
+
+    - id: message-feedback
+      name: '@deepseek-ai/dsh-message-feedback'
+      config:
+        maxNoteBytes: 8192
+
+    - id: api-remotes
+      name: '@deepseek-ai/dsh-api-remotes'
+
     - id: session-projection-cache
       name: '@deepseek-ai/dsh-session-projection-cache'
       config:

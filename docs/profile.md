@@ -55,17 +55,59 @@ dshr 的 `package.json`：
     - { id: session-projection-cache, name: '@deepseek-ai/dsh-session-projection-cache',
         config: { writeEveryEvents: 200, writeIntervalMs: 5000 } }
     - { id: session-stats,  name: '@deepseek-ai/dsh-session-stats' }
+    - { id: directory-picker, name: '@deepseek-ai/dsh-host-directory-picker-browse' }
+    - { id: agent-presets,  name: '@deepseek-ai/dsh-agent-presets', config: { default: standard } }
+    - { id: plugin-inventory, name: '@deepseek-ai/dsh-host-plugin-inventory' }
+    - { id: message-feedback, name: '@deepseek-ai/dsh-message-feedback', config: { maxNoteBytes: 8192 } }
+    - { id: api-remotes,    name: '@deepseek-ai/dsh-api-remotes' }
     - { id: api-gateway,    name: '@deepseek-ai/dsh-host-apiproxy' }
     - { id: cordis-host-runner, name: '@deepseek-ai/dsh-cordis-host-runner' }
     - { id: dshr-startup,   name: '@dshr/bundle/startup' }
     - { id: dshr-app,       name: '@dshr/bundle', inject: [dshrStartup], config: { ... } }
 ```
 
-**两条 patch 语义每次都要记住**（都踩过）：
+**三条 patch 语义每次都要记住**（都踩过）：
 
 - 一条 patch **替换目标行的整个 `config`**，所以每行要把自己拥有的键全部重述。
 - 改已有条目用 `id`，加新插件用 `insert`。**写错 id 只在 stderr 印一行就照常启动**——
   改完必须 `dsh --profile dshr --dump-config` 复核，别信它没炸就是对的。
+- **`--dump-config` 干净 ≠ 起得来**（2026-08-18 实测）。见下。
+
+### ⚠️ `--dump-config` 发现不了缺行，只有真 boot 才行
+
+组合阶段**不检查服务依赖**。上面那份清单一开始少了五行，`--dump-config` 照样吐出干净的
+361 行，一真启动就炸：
+
+```
+dsh: plugin tree failed to load: dsh: 1 entry did not activate
+@deepseek-ai/dsh-host-apiproxy: pending (waiting for service: directoryPicker)
+```
+
+补完之后还有第二跳——**照抄 web 的那一行是错的**：
+
+```
+@deepseek-ai/dsh-host-directory-picker-auto: pending (waiting for service: webServer)
+```
+
+`-auto` 要靠 bind host / SSH / display 去自选 native 还是 browse，**它自己依赖 webServer**，
+而 dshr 这条路刻意不挂 webserver。终端要用 **`-browse`**：不需要 web server，
+把目录列表交给客户端画（对应 `host.listDirectory` 那一族）。`-native` 会弹 GUI 目录对话框，
+对跑在终端里的 surface 是错的。
+
+**所以改完 patch 的复核动作是两步，缺一不可**：
+
+```sh
+DSH_HOME=<隔离目录> dsh --profile dshr --dump-config   # 组合对不对
+DSH_HOME=<隔离目录> dsh --profile dshr                 # 起不起得来
+```
+
+起得来的样子（2026-08-18 实测）：打印一行
+`dshr: host plane settled (127.0.0.1:39080); terminal surface not yet mounted` 然后驻留，
+**且 `lsof -a -p <pid> -iTCP -sTCP:LISTEN` 为空**——这条路不开端口，那行里的 host:port
+只是 `dshrRuntime` 的值，不代表在监听。
+
+> 少了 `agent-presets` 尤其阴：图起得来、会话能开，但 `agentPreset.list` / `select` 没得用，
+> 表现是「切预设这个功能莫名其妙不工作」。
 
 `webserver` 行**只在需要跨进程 attach 时才插**，见下。
 
