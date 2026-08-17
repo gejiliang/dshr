@@ -1,5 +1,6 @@
 /**
- * E 批对话框的验收：纯构建器（dialog-data）+ LazyDialogSelect + TextPromptDialog
+ * E 批对话框的验收：纯构建器（dialog-data）+ LazyDialogSelect + DialogPrompt
+ *（goal-create 收 objective 用的是 C 批的 DialogPrompt，单行输入框只有这一个实现）
  * + Sidebar 的 Goal 块。数据全是手工夹具——**不打真 host**（settings/credentials
  * 对着活 host 只能调只读方法，测试连只读都不调，直接喂形状）。
  */
@@ -8,9 +9,9 @@ import assert from 'node:assert/strict'
 import './force-color.ts'
 import { fg, flush } from './helpers.ts'
 import {
+  DialogPrompt,
   LazyDialogSelect,
   Sidebar,
-  TextPromptDialog,
   credentialOptions,
   modelOptions,
   providerOptions,
@@ -147,14 +148,14 @@ test('LazyDialogSelect：取数失败画可读错误行（不静默），note �
   app.unmount()
 })
 
-// ---- TextPromptDialog ----
+// ---- DialogPrompt（goal-create 的 objective 输入框走它）----
 
-test('TextPromptDialog：输入 + 回车提交（trim）；空串不提交；esc 取消', async (t) => {
+test('DialogPrompt：输入 + 回车提交（trim）；空串不提交；esc 取消', async (t) => {
   t.after(cleanup)
   const submitted: string[] = []
   let cancelled = false
   const app = render(
-    h(TextPromptDialog, {
+    h(DialogPrompt, {
       title: 'Create goal',
       placeholder: 'Objective',
       onSubmit: (text: string) => submitted.push(text),

@@ -4,6 +4,9 @@
  * 数据形状只认 `@dshr/state` 的公开契约；本包不知道 HTTP/WebSocket 的存在。
  */
 export { Conversation, ItemRow } from './components/Conversation.js'
+export { CommandRow, DividerRow, RetryRow, TodoRow } from './components/AwarenessRows.js'
+export type { CommandItem, DividerItem, RetryItem, TodoViewItem } from './components/AwarenessRows.js'
+export { QueueDock } from './components/QueueDock.js'
 export { Composer, hintFor, insertText, setTerminalColumnsForTest } from './components/Composer.js'
 export type { ComposerHint, ComposerProps } from './components/Composer.js'
 export { Footer } from './components/Footer.js'
@@ -17,12 +20,12 @@ export type {
   DialogSelectOption,
   DialogSelectProps,
 } from './components/DialogSelect.js'
+export { DialogPrompt } from './components/DialogPrompt.js'
+export type { DialogPromptProps } from './components/DialogPrompt.js'
 export { CommandPalette } from './components/CommandPalette.js'
 export type { CommandPaletteProps } from './components/CommandPalette.js'
 export { LazyDialogSelect } from './components/LazyDialogSelect.js'
 export type { LazyDialogSelectProps } from './components/LazyDialogSelect.js'
-export { TextPromptDialog } from './components/TextPromptDialog.js'
-export type { TextPromptDialogProps } from './components/TextPromptDialog.js'
 export {
   credentialOptions,
   modelOptions,

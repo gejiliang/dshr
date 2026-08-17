@@ -113,13 +113,18 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
   // 下面那段收尾照样跑，统一的 shutdown 路径一点没丢。
   // 跑在 herdr 的 pane 里就把状态报上去，侧栏据此把这个 pane 显示成一个 agent。
   // 不在 herdr 里跑时它自己是 no-op（判据是 `HERDR_PANE_ID` 在不在）。
-  const herdr = startReporter({ state, sessionId })
+  // 会话是可换的（C 批：Switch session / fork），reporter 读 getter 跟着走。
+  const activeSession = { current: sessionId }
+  const herdr = startReporter({ state, sessionId: () => activeSession.current })
 
   const app = render(
     h(SessionApp, {
       state,
       client,
       sessionId,
+      onSessionChange: (id) => {
+        activeSession.current = id
+      },
       ...(model !== undefined ? { model } : {}),
       ...(provider !== undefined ? { provider } : {}),
       ...(version !== undefined ? { version } : {}),

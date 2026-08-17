@@ -12,12 +12,22 @@ export interface ComposerProps {
   preset?: string
   model?: string
   provider?: string
+  /**
+   * 会话里见过 `plan/mode` 事件（形状还没打到，只有「发生过」一个比特——
+   * 在模式位留一个 muted 的 `· plan/mode` 标记，不断言是进还是出）。
+   */
+  planModeSeen?: boolean
   /** 输入面板宽度（列）。缺省用终端宽度（减去右侧信息列后由外层传入）。 */
   width?: number
   /** agent 在跑时，快捷键提示行的左侧换成 `esc interrupt`（opencode 的运行态提示）。 */
   working?: boolean
   /** esc 中断当前轮。 */
   onInterrupt?: () => void
+  /**
+   * `tab` **就地循环** agent preset，不弹对话框（opencode 实测：`Build` ↔ `Plan`
+   * 在 composer 那行原地变，见 docs/opencode-dialogs.md 键位一节）。不传则 tab 被吞掉。
+   */
+  onCyclePreset?: () => void
   /**
    * **按键到达那一刻**再问一次「现在该不该收这个键」。
    *
@@ -120,9 +130,11 @@ export function Composer({
   preset,
   model,
   provider,
+  planModeSeen = false,
   width: widthProp,
   working = false,
   onInterrupt,
+  onCyclePreset,
   acceptsKey,
 }: ComposerProps) {
   const { stdout } = useStdout()
@@ -157,7 +169,10 @@ export function Composer({
         onInterrupt?.()
         return
       }
-      if (key.tab) return
+      if (key.tab) {
+        onCyclePreset?.()
+        return
+      }
       if (key.return) {
         if (key.shift) {
           apply(insertText(current, at, '\n'))
@@ -278,6 +293,7 @@ export function Composer({
         {bar}
         <Text backgroundColor={theme.backgroundElement}>
           <Text color={theme.secondary}>  {titlecase(preset ?? 'standard')}</Text>
+          {planModeSeen ? <Text color={theme.textMuted}> · plan/mode</Text> : null}
           {model !== undefined ? (
             <>
               <Text color={theme.textMuted}> · </Text>
@@ -293,12 +309,24 @@ export function Composer({
         <Text color={theme.backgroundElement}>{'▀'.repeat(Math.max(0, width - 1))}</Text>
       </Text>
       {/* 快捷键提示行 */}
-      <Box justifyContent={working ? 'space-between' : 'flex-end'}>
+      <Box justifyContent={working || onCyclePreset !== undefined ? 'space-between' : 'flex-end'}>
         {working ? (
           <Text>
             <Text color={theme.text}>… esc </Text>
             <Text color={theme.textMuted}>interrupt</Text>
           </Text>
+        ) : onCyclePreset !== undefined ? (
+          // opencode 空状态提示行实测：`tab agents  ctrl+p commands`
+          <Box gap={2}>
+            <Text>
+              <Text color={theme.text}>tab </Text>
+              <Text color={theme.textMuted}>preset</Text>
+            </Text>
+            <Text>
+              <Text color={theme.text}>ctrl+p </Text>
+              <Text color={theme.textMuted}>commands</Text>
+            </Text>
+          </Box>
         ) : null}
         <Box gap={2}>
           <Text>

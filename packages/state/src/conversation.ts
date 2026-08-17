@@ -27,10 +27,60 @@ export type ProjectionsBlock = NonNullable<HistoryPage['projections']>
 
 type StreamItem = Extract<ConversationItem, { kind: 'assistant' | 'reasoning' }>
 type ToolItem = Extract<ConversationItem, { kind: 'tool' }>
+type RetryItem = Extract<ConversationItem, { kind: 'retry' }>
+type TodoViewItem = Extract<ConversationItem, { kind: 'todo' }>
+type CommandItem = Extract<ConversationItem, { kind: 'command' }>
 type AssistantChunk = Extract<SessionEvent, { type: 'assistant/chunk' }>
 type ContentBlock = Extract<SessionEvent, { type: 'assistant/message' }>['data']['message']['content'][number]
 
 type TextLikeBlock = Extract<ContentBlock, { type: 'text' | 'reasoning' }>
+
+/**
+ * 插件事件的载荷形状。这些类型**不在核心 `SessionEventMap` 里**（由插件做模块增强，
+ * 而声明它们的插件没装进 dshr），所以这里按实测/包内 .d.ts 抄字段名——
+ * 出处逐条标注，猜字段名是禁令（docs/gap-shapes.md §七）。
+ */
+
+/** `llm/retry`：docs/gap-shapes.md §二的实测原始 JSON。 */
+interface LlmRetryData {
+  retryId: string
+  turn: number
+  step: number
+  retry: number
+  maxRetries: number
+  delayMs: number
+  failure: { message: string; code: string }
+}
+
+/** `llm/retry-started`：同上。 */
+interface LlmRetryStartedData {
+  retryId: string
+  turn: number
+  step: number
+  retry: number
+}
+
+/** `command/run` / `command/done`：`@deepseek-ai/dsh-commands/lib/types/types.d.ts`。 */
+interface CommandRunData {
+  commandId: string
+  name: string
+  args?: string
+  source: unknown
+}
+interface CommandDoneData {
+  commandId: string
+  kind: 'success' | 'error'
+  text?: string
+  sourceEventSeq?: number
+}
+
+/** `compaction/*` 的四个 type（载荷形状未知，只认 type）。 */
+const COMPACTION_TYPES = new Set(['compaction/start', 'compaction/end', 'compaction/summary', 'compaction/prune'])
+
+export interface FoldHooks {
+  /** 见到 `plan/mode` 事件时调一次（只认 type，不碰 data）。 */
+  onPlanMode?(): void
+}
 
 /**
  * 一趟顺序折叠。维护两类未决状态：
@@ -43,6 +93,12 @@ type TextLikeBlock = Extract<ContentBlock, { type: 'text' | 'reasoning' }>
  */
 class Fold {
   private openCalls = new Map<string, ToolItem>()
+  /** 未完结的重试（`llm/retry` → `llm/retry-started`），按 retryId 配对。 */
+  private openRetries = new Map<string, RetryItem>()
+  /** 未完结的斜杠命令（`command/run` → `command/done`），按 commandId 配对。 */
+  private openCommands = new Map<string, CommandItem>()
+  /** todo 表是 last-write-wins：视图里只有一份，记下当前那份好换新。 */
+  private todoItem: TodoViewItem | null = null
   /** 当前 step 的流式拼装状态；step/turn 边界重置。 */
   private assembler: BlockAssembler | null = null
   /** chunk.index 的首次出现顺序，与 BlockAssembler.blocks() 的位置一一对应。 */
@@ -59,6 +115,7 @@ class Fold {
   constructor(
     private readonly items: ConversationItem[],
     private readonly onChange: () => void,
+    private readonly hooks: FoldHooks = {},
   ) {}
 
   push(event: SessionEvent, view: ToolEventView | undefined): void {
@@ -103,11 +160,143 @@ class Fold {
       case 'tool/result':
         this.onToolResult(event, view)
         break
+      case 'todo/write':
+        // 整表快照，last-write-wins：有旧表就**换新对象**（不可变纪律），没有就建。
+        if (this.todoItem) {
+          const next: TodoViewItem = { ...this.todoItem, todos: event.data.todos }
+          this.swapItem(this.todoItem, next)
+          this.todoItem = next
+        } else {
+          const item: TodoViewItem = { kind: 'todo', id: `todo-${event.seq}`, todos: event.data.todos }
+          this.todoItem = item
+          this.items.push(item)
+        }
+        this.onChange()
+        break
       default:
-        // 其余事件（todo/write、request/header、session/end-seed、插件扩展……）
-        // 不产生会话视图项。
+        this.onExtensionEvent(event)
         break
     }
+  }
+
+  /**
+   * 插件声明的事件：核心 `SessionEventMap` 的类型里没有它们，但运行时会到。
+   * 字段名照抄实测/包内 .d.ts（见上方各 Data 接口的出处注释）；
+   * `compaction/*` 与 `plan/mode` **只认 type，一个 data 字段都不碰**。
+   */
+  private onExtensionEvent(event: SessionEvent): void {
+    const type: string = event.type
+    if (COMPACTION_TYPES.has(type)) {
+      // 一段连续的 compaction 事件折成**一条**居中横线；形状未知，不读 data。
+      const last = this.items.at(-1)
+      if (last && last.kind === 'divider' && last.label === 'Compaction') return
+      this.items.push({ kind: 'divider', id: `compaction-${event.seq}`, label: 'Compaction' })
+      this.onChange()
+      return
+    }
+    switch (type) {
+      case 'plan/mode':
+        this.hooks.onPlanMode?.()
+        break
+      case 'llm/retry':
+        this.onLlmRetry(event.seq, event.data as unknown as LlmRetryData)
+        break
+      case 'llm/retry-started':
+        this.onLlmRetryStarted(event.seq, event.data as unknown as LlmRetryStartedData)
+        break
+      case 'command/run':
+        this.onCommandRun(event.data as unknown as CommandRunData)
+        break
+      case 'command/done':
+        this.onCommandDone(event.seq, event.data as unknown as CommandDoneData)
+        break
+      default:
+        // 其余插件事件（request/header、hook/*、goal/change……）不产生会话视图项。
+        break
+    }
+  }
+
+  /** `llm/retry` = 决定要重试：立一行，等 `llm/retry-started` 配对。 */
+  private onLlmRetry(seq: number, data: LlmRetryData): void {
+    const item: RetryItem = {
+      kind: 'retry',
+      id: `retry-${data.retryId}`,
+      retryId: data.retryId,
+      attempt: data.retry,
+      maxRetries: data.maxRetries,
+      code: data.failure.code,
+      started: false,
+    }
+    this.openRetries.set(data.retryId, item)
+    this.items.push(item)
+    this.onChange()
+  }
+
+  /** `llm/retry-started` = 退避结束、真的开打：与 retryId 配对，置 started。 */
+  private onLlmRetryStarted(seq: number, data: LlmRetryStartedData): void {
+    const open = this.openRetries.get(data.retryId)
+    if (open) {
+      this.openRetries.delete(data.retryId)
+      // 换新对象，不原地改——理由见 replaceItem 的注释。
+      this.swapItem(open, { ...open, started: true })
+    } else {
+      // 页边界外的孤儿 started（fold 范围内没见过它的 retry）：补一条已开打的项。
+      this.items.push({
+        kind: 'retry',
+        id: `retry-${data.retryId}`,
+        retryId: data.retryId,
+        attempt: data.retry,
+        started: true,
+      })
+    }
+    void seq
+    this.onChange()
+  }
+
+  private onCommandRun(data: CommandRunData): void {
+    const item: CommandItem = {
+      kind: 'command',
+      id: `cmd-${data.commandId}`,
+      commandId: data.commandId,
+      name: data.name,
+      ...(typeof data.args === 'string' && data.args !== '' ? { args: data.args } : {}),
+      status: 'running',
+    }
+    this.openCommands.set(data.commandId, item)
+    this.items.push(item)
+    this.onChange()
+  }
+
+  private onCommandDone(seq: number, data: CommandDoneData): void {
+    const open = this.openCommands.get(data.commandId)
+    const status = data.kind === 'error' ? ('error' as const) : ('ok' as const)
+    if (open) {
+      this.openCommands.delete(data.commandId)
+      const next: CommandItem = {
+        ...open,
+        status,
+        ...(typeof data.text === 'string' && data.text !== '' ? { text: data.text } : {}),
+      }
+      this.swapItem(open, next)
+    } else {
+      // 孤儿 done：补一条已完结的项（name 未知，渲染层兜底）。
+      this.items.push({
+        kind: 'command',
+        id: `cmd-${data.commandId}`,
+        commandId: data.commandId,
+        name: '',
+        status,
+        ...(typeof data.text === 'string' && data.text !== '' ? { text: data.text } : {}),
+      })
+    }
+    void seq
+    this.onChange()
+  }
+
+  /** 把 `old` 换成 `next`（只换 items 数组；流式项请走 replaceItem）。 */
+  private swapItem(old: ConversationItem, next: ConversationItem): void {
+    const i = this.items.indexOf(old)
+    if (i >= 0) this.items[i] = next
   }
 
   /**
@@ -292,13 +481,17 @@ class Fold {
 export interface ConversationDeps {
   /** history 尾页（只有尾页）携带的投影基线块，交给 state 按 higher-seq-wins 播种。 */
   onProjections(block: ProjectionsBlock): void
+  /** 见到 `plan/mode` 事件（只认 type；重连重折 history 时会再报一次，state 侧幂等）。 */
+  onPlanMode?(): void
 }
 
 export class Conversation implements ConversationView {
   readonly sessionId: SessionId
 
   private itemsArr: ConversationItem[] = []
-  private fold = new Fold(this.itemsArr, () => this.notify())
+  private fold = new Fold(this.itemsArr, () => this.notify(), {
+    onPlanMode: () => this.deps.onPlanMode?.(),
+  })
   private listeners = new Set<() => void>()
   private initialized = false
   private disposed = false
@@ -385,7 +578,9 @@ export class Conversation implements ConversationView {
     if (this.disposed) return
     this.resetEpoch++
     this.itemsArr = []
-    this.fold = new Fold(this.itemsArr, () => this.notify())
+    this.fold = new Fold(this.itemsArr, () => this.notify(), {
+      onPlanMode: () => this.deps.onPlanMode?.(),
+    })
     this.buffered = []
     this.initialized = false
     this.lastSeq = -1

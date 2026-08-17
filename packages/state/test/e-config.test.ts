@@ -75,7 +75,7 @@ test('settings.describe / llm.providers / llm.models：空载荷、结果透传'
   assert.equal(settings.namespaces.length, 2)
   const providers = await state.listProviders()
   assert.equal(providers[0]?.provider, 'deepseek-official')
-  const catalog = await state.listModels()
+  const catalog = await state.listModelCatalog()
   assert.deepEqual(catalog.groups, [])
 
   for (const call of client.calls) assert.deepEqual(call.payload, {})
@@ -96,7 +96,7 @@ test('只读方法的业务错误抛出来（带方法名），不吞', async ()
   const state = await readyState(client)
   await assert.rejects(() => state.describeSettings(), /settings\.describe failed: loopback-only/)
   await assert.rejects(() => state.listProviders(), /llm\.providers failed/)
-  await assert.rejects(() => state.listModels(), /llm\.models failed/)
+  await assert.rejects(() => state.listModelCatalog(), /llm\.models failed/)
   await state.dispose()
 })
 

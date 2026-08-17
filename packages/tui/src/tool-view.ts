@@ -22,6 +22,42 @@ const SALIENT_ARG_KEYS = [
   'prompt',
 ] as const
 
+/** 把 args（可能是未解析的 JSON 串）解成记录；解不出就 undefined。 */
+export function argsRecord(args: unknown): Record<string, unknown> | undefined {
+  if (args === null || args === undefined) return undefined
+  if (typeof args === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(args)
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      // 不是 JSON——普通文本参数，不是记录。
+    }
+    return undefined
+  }
+  if (typeof args === 'object' && !Array.isArray(args)) return args as Record<string, unknown>
+  return undefined
+}
+
+function titlecase(text: string): string {
+  return text === '' ? text : `${text[0]?.toUpperCase() ?? ''}${text.slice(1)}`
+}
+
+/**
+ * 子 agent 工具行的标题（opencode：`✓ General Task — <描述>`）。
+ * 实测（docs/gap-shapes.md §五）：父会话看到的是 `tool/call` 且 `name === 'subagent'`，
+ * args 里有 `subagent_type` / `description` / `prompt`。**不做父子会话关联。**
+ */
+export function subagentTitle(item: ToolItem): string {
+  const record = argsRecord(item.args)
+  const rawType = record?.['subagent_type']
+  const type = typeof rawType === 'string' && rawType !== '' ? titlecase(rawType) : 'Sub'
+  const rawDesc = record?.['description']
+  const desc = typeof rawDesc === 'string' ? truncate(firstLine(rawDesc), 60) : ''
+  return desc === '' ? `${type} Task` : `${type} Task — ${desc}`
+}
+
 function salientArg(args: unknown): string | undefined {
   if (args === null || args === undefined) return undefined
   // 事件流里的 arguments 常是**未解析的 JSON 串**——先解开再走标量挑选，
