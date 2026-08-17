@@ -373,6 +373,13 @@ export class Conversation implements ConversationView {
     this.notify()
   }
 
+  /** 本地反馈行（命令动词的成败回执），与 host 事件无关。 */
+  pushNotice(text: string): void {
+    if (this.disposed) return
+    this.itemsArr.push({ kind: 'notice', id: `local-notice-${this.hostErrorCount++}`, text })
+    this.notify()
+  }
+
   /** generation 失效：流式拼接状态是脏的，整段作废重取（host 会重放未决交互）。 */
   reset(): void {
     if (this.disposed) return

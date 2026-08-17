@@ -9,7 +9,7 @@ export type { ComposerHint, ComposerProps } from './components/Composer.js'
 export { Footer } from './components/Footer.js'
 export type { ConnectionStatus, FooterProps } from './components/Footer.js'
 export { Sidebar } from './components/Sidebar.js'
-export type { SidebarProps } from './components/Sidebar.js'
+export type { SidebarGoal, SidebarProps } from './components/Sidebar.js'
 export { Logo } from './components/Logo.js'
 export { DialogSelect, filterOptions, fuzzyScore } from './components/DialogSelect.js'
 export type {
@@ -19,6 +19,16 @@ export type {
 } from './components/DialogSelect.js'
 export { CommandPalette } from './components/CommandPalette.js'
 export type { CommandPaletteProps } from './components/CommandPalette.js'
+export { LazyDialogSelect } from './components/LazyDialogSelect.js'
+export type { LazyDialogSelectProps } from './components/LazyDialogSelect.js'
+export { TextPromptDialog } from './components/TextPromptDialog.js'
+export type { TextPromptDialogProps } from './components/TextPromptDialog.js'
+export {
+  credentialOptions,
+  modelOptions,
+  providerOptions,
+  settingsOptions,
+} from './dialog-data.js'
 export { createCommandRegistry } from './commands.js'
 export type { Command, CommandRegistry } from './commands.js'
 export { PendingPrompt } from './components/PendingPrompt.js'

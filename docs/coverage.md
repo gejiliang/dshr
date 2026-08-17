@@ -22,7 +22,7 @@
 
 | 面 | 覆盖 | 说明 |
 |---|---|---|
-| RPC 方法 | 9 / 51 | `host.close` 是 dshr 自己 spawn 的 host 对象上的本地方法，**不是 RPC**，不计入 |
+| RPC 方法 | 19 / 51 | `host.close` 是 dshr 自己 spawn 的 host 对象上的本地方法，**不是 RPC**，不计入 |
 | 下行帧 | 19 / 19 | MuxFrame 10 + HostFrame 9，**全接了** |
 | 会话事件 | 8 / 39 | 上游 `known-event-types.js` 是权威清单 |
 
@@ -108,6 +108,22 @@ workspace 列表/创建/重命名、上下文 token、往 herdr 报 idle/working
 `credentials.describe` `set` `unset`、`llm.providers` `models` `discoverModels`、
 `goal.create` `edit` `pause` `resume` `complete` `clear`。
 
+**E 批已落（2026-08-17）**。设计取向是「打开文档」而不是在 TUI 里做配置编辑器
+（上游自带 `settings.openDocument` 就是这个意图）：
+
+- `Open settings` → `settings.openDocument`；`View settings` → `settings.describe` 只读列表
+- `Configure credentials` → ref 从设置的 `apiKeyEnv` 字段发现 + `credentials.describe` 只读列出配置状态；
+  **`credentials.set` / `unset` 没做 UI**（终端里明文输密钥是坏主意，凭证值只进 gitignored 的 `secrets/`）
+- `View providers` / `View models` → `llm.providers` / `llm.models` 只读
+- 目标：侧栏 Goal 块读 `goal` 投影；`Create goal`（收 objective）+ `Pause` / `Resume` / `Complete` / `Clear`
+  按 phase 显隐，ref 派发时现读（revision 会被自动轮次推进，实测撞过 STALE）。
+  `goal.edit` 与 `llm.discoverModels` 没接（前者需要编辑 UI，后者会打真实 provider 端点）。
+- **没包进 state 层的**：`settings.update` / `replace` / `mutate` / `credentials.set` / `unset`——
+  它们写用户真实的 `~/.dsh`，dshr 这轮的配置修改路径就是 openDocument。
+
+真实截屏：`docs/screenshots/e-batch-providers.txt`、`docs/screenshots/e-batch-settings.txt`
+（mock + host + tmux 150×45，对照 `opencode-dialogs.md` §二的模型对话框形状）。
+
 ## 四、opencode 展现的判据
 
 **A 批与 B 批的形状都来自实物**，不是照源码想象的：
@@ -138,3 +154,11 @@ workspace 列表/创建/重命名、上下文 token、往 herdr 报 idle/working
 改完任一批，重跑 §开头那三条 `grep` 更新分母，并**贴一张真实截屏**对照
 `opencode-dialogs.md` 里的对应图。对不上就继续改——
 不要贴一张对不上的图然后说做完了。
+
+## 六、已知问题（发现但没修的，记这里）
+
+- **对话超过一屏后 Sidebar 内容消失**（只剩底部版本行）：2026-08-17 在 150×45 的 tmux 里实测，
+  会话项多到撑满 `maxRows` 后右侧栏的标题 / Context / Goal 块全部不画（-e 抓屏能看到
+  backgroundPanel 底色还在，文字没了）。**在 E 批之前的代码（6a4cd6a）上同样复现**，
+  不是 E 批引入的。疑似左侧列超髙时 yoga 布局把右栏内容挤掉，修的时候从
+  `session-app.tsx` 的行布局与 `Conversation` 的 `maxRows` 截断查起。

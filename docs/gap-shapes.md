@@ -215,6 +215,26 @@ opencode 的 `tab` 就地循环（`Build` ↔ `Plan`）在 dshr 这边就是在�
                    "active": false, "declared": false } ] }
 ```
 
+### E 批补测（2026-08-17 晚，`tools/probe-config.mjs` / `tools/probe-goal.mjs`）
+
+- **`settings.describe`**：返回 `{ writable, hasDocument, namespaces[] }`；每个命名空间带
+  `ns` / `schema`（schemastery 序列化封套）/ `value`（**已脱敏**，`role('secret')` 字段不下线）/
+  `applies: 'live'|'restart'` / `secrets: [{path, set}]` / `revision`（写回时的 CAS）。
+- **credential ref 的发现**：credentials 域**故意没有枚举方法**——ref 从设置里读：
+  字段名就是 `apiKeyEnv`（schema 里标 `role: 'credential-ref'`），值是 ref 名
+  （如 `MOCK_API_KEY`）。provider 的 profile 在 `settingsNs` 的 `value` 里按 `settingsPath` 指进去。
+  `credentials.describe` 必填 `refs: string[]`，空对象撞 zod（`expected array`）。
+- **`goal` 投影就是 goal 的读侧**（goals.d.ts 写明的）：`session/projection` 帧与 history
+  尾页投影块里都带，形状 = `{ goal: {id, revision, objective, phase, maxGoalRounds, blockedReason?},
+  roundsStarted, createdAt, updatedAt }`，clear 后是 `null`。`goal/change` **事件**的 data 同测到
+  create 与 block 两个操作（与 dsh-goal 的 `GoalChangeMeta` 一致），但其余操作没全打——
+  **用投影做读侧就够了，事件继续只认 type**。
+- **goal 的 CAS 是真的会咬**：goal 活着时模型会自动跑轮次，revision 一直被推；
+  拿创建时的 ref 去 pause 撞 `stale goal ref … revision 1; current is … revision 2`。
+  **动词必须在派发那一刻从投影现读 ref。** 另外 phase 在 pause 按下前翻成 blocked 也会撞
+  `cannot pause goal … from phase "blocked"`——所以动词的失败必须**有可读回执**，不能吞。
+- `goal.create` 不给 `maxGoalRounds` 时服务默认 **256 轮**（实测投影里看到的）。
+
 ### 写方法的载荷与返回（`tools/probe-methods.mjs` 实测）
 
 | 方法 | 载荷 | 返回 |
@@ -231,7 +251,6 @@ opencode 的 `tab` 就地循环（`Build` ↔ `Plan`）在 dshr 这边就是在�
 | `session.prompt` | `{ sessionId, mode:'queue', content:[{type:'text',text}] }` | 已在 `packages/state/src/state.ts` 验证 |
 
 三个会咬人的地方：
-
 1. **`agentPreset.select` 的键是 `agentPreset`，不是 `presetId`。** 猜错过一次。
 2. **`session.search` 可能被部署关掉。** 实测这台报：
    `session search is disabled: this deployment configures the session-query index with openAt "never"`。

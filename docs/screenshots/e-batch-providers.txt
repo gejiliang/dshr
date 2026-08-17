@@ -1,0 +1,45 @@
+      Providers                                                                                    esc
+                                                                                                              New session
+       Search
+                                                                                                              /private/tmp/dshr-e-shot
+      Active
+    ● DeepSeek deepseek-official
+    ● mock mock
+
+      Available
+      amazon-bedrock amazon-bedrock · not declared
+      ant-ling ant-ling · not declared
+      anthropic anthropic · not declared
+      azure-openai-responses azure-openai-responses · not declared
+      cerebras cerebras · not declared
+      cloudflare-ai-gateway cloudflare-ai-gateway · not declared
+      cloudflare-workers-ai cloudflare-workers-ai · not declared
+      deepseek deepseek · not declared
+      fireworks fireworks · not declared
+      github-copilot github-copilot · not declared
+      google google · not declared
+      google-vertex google-vertex · not declared
+      groq groq · not declared
+      huggingface huggingface · not declared
+      kimi-coding kimi-coding · not declared
+      minimax minimax · not declared
+      minimax-cn minimax-cn · not declared
+      mistral mistral · not declared
+      moonshotai moonshotai · not declared
+      moonshotai-cn moonshotai-cn · not declared
+      nvidia nvidia · not declared
+      openai openai · not declared
+      opencode opencode · not declared
+      opencode-go opencode-go · not declared
+      openrouter openrouter · not declared
+      qwen-token-plan qwen-token-plan · not declared
+
+
+
+  ┃
+  ┃  Ask anything... "Fix a TODO in the codebase"
+  ┃
+  ┃  Standard · mock-model mock
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀    • dshr 0.0.0
+                                                                           enter send  shift+enter newline
+/private/tmp/dshr-e-shot                                                                                                       • connected  mock-model
