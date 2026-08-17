@@ -11,6 +11,16 @@ export type { ConnectionStatus, FooterProps } from './components/Footer.js'
 export { Sidebar } from './components/Sidebar.js'
 export type { SidebarProps } from './components/Sidebar.js'
 export { Logo } from './components/Logo.js'
+export { DialogSelect, filterOptions, fuzzyScore } from './components/DialogSelect.js'
+export type {
+  DialogSelectAction,
+  DialogSelectOption,
+  DialogSelectProps,
+} from './components/DialogSelect.js'
+export { CommandPalette } from './components/CommandPalette.js'
+export type { CommandPaletteProps } from './components/CommandPalette.js'
+export { createCommandRegistry } from './commands.js'
+export type { Command, CommandRegistry } from './commands.js'
 export { PendingPrompt } from './components/PendingPrompt.js'
 export type {
   PendingPromptProps,
