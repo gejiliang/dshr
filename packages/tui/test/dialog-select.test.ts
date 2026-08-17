@@ -343,3 +343,45 @@ test('远程搜索：抛错同样退回本地过滤', async (t) => {
   assert.ok((app.lastFrame() ?? '').includes('View status'), '抛错后本地过滤应照常工作')
   app.unmount()
 })
+
+test('suggested 命令：未过滤时只在 Suggested 里露一次，一搜本体登场（回归）', async (t) => {
+  t.after(cleanup)
+  // 这条钉死一个真踩过的 bug：早先把 suggested 命令**归类**成 Suggested 而不是复制，
+  // 于是一输入过滤就把条目本身删了——`Switch model` 是唯一 suggested 命令，
+  // 搜 `model` 返回 No results found，最要紧的那条命令反而搜不到。
+  let ran = ''
+  const registry = createCommandRegistry()
+  registry.register({
+    name: 'model.switch',
+    title: 'Switch model',
+    suggested: true,
+    run: () => {
+      ran = 'model'
+    },
+  })
+  registry.register({
+    name: 'session.switch',
+    title: 'Switch session',
+    category: 'Session',
+    run: () => {},
+  })
+  const app = render(h(CommandPalette, { registry, onClose: () => {} }))
+  await flush()
+
+  const unfiltered = app.lastFrame() ?? ''
+  assert.ok(unfiltered.includes('Suggested'), '未过滤应有 Suggested 分组')
+  const occurrences = unfiltered.split('Switch model').length - 1
+  assert.strictEqual(occurrences, 1, `未过滤时 Switch model 只该出现一次，实际 ${occurrences} 次`)
+
+  app.stdin.write('model')
+  await flush()
+  const filtered = app.lastFrame() ?? ''
+  assert.ok(filtered.includes('Switch model'), '搜 model 必须找得到 Switch model')
+  assert.ok(!filtered.includes('Suggested'), '过滤后 Suggested 分组应消失')
+  assert.ok(!filtered.includes('Switch session'), '不匹配的命令应被滤掉')
+
+  app.stdin.write('\r')
+  await flush()
+  assert.strictEqual(ran, 'model', '选中过滤后的本体应派发到原命令名（不带 suggested: 前缀）')
+  app.unmount()
+})

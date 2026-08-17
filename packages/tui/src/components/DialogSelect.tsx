@@ -13,6 +13,15 @@ export interface DialogSelectOption {
   readonly footer?: string
   /** 当前项，gutter 画 ●。 */
   readonly current?: boolean
+  /**
+   * 只在**有输入**时出现。
+   *
+   * 用来复刻 opencode 的 Suggested 行为：未过滤时一条命令只在 `Suggested` 分组里露一次
+   * （实测截屏 `docs/opencode-dialogs.md` §一：`Switch model` 只出现在 Suggested 下，
+   * 不在别的分类里重复），一旦开始搜索，`Suggested` 那份消失、本体登场。
+   * 没有这个标记的话，要么未过滤时重复两条，要么一搜就把条目本身弄丢——两个都踩过。
+   */
+  readonly onlyWhenFiltered?: boolean
   readonly value: string
 }
 
@@ -76,7 +85,7 @@ export function filterOptions(
   options: readonly DialogSelectOption[],
   query: string,
 ): DialogSelectOption[] {
-  if (query === '') return [...options]
+  if (query === '') return options.filter((o) => o.onlyWhenFiltered !== true)
   const pool = options.filter((o) => o.category !== 'Suggested')
   const scored: Array<{ option: DialogSelectOption; score: number }> = []
   for (const option of pool) {
