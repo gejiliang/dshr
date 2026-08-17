@@ -148,8 +148,15 @@ type SubagentDescriptorData =
 但：
 
 - 声明它们的插件**没装进 dshr**，读不到类型
-- **本轮没造出来**：压缩要撑爆上下文（131072 tokens，mock 造不出来）；
-  plan 模式要先进计划态，`exit_plan_mode` 工具单独调不触发
+- **本轮没造出来**，试过的办法与结果（别再试一遍）：
+
+| 试法 | 结果 |
+|---|---|
+| 让 mock 发 `exit_plan_mode` 工具调用 | **事件流里连 `tool/call` 都没有**——该工具多半不在 `standard` preset 的可用集里，host 直接丢了。没有 `plan/mode` |
+| `agentPreset.list` 里找 plan 预设 | 没有。dsh 只有 `standard`/`code`/`minimal`/`cordis` 四个，**plan 不是一个 preset** |
+| 撑爆上下文造压缩 | 没试——`request/context` 报 `contextWindow: 131072`，mock 造不出这个量 |
+
+  > 所以 **plan 模式在 dsh 里怎么进，目前是未知的**。不是「有接口没接」，是还没找到入口。
 
 **动它们之前必须先打到一次真事件**。在没有实测样本之前：
 
