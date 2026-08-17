@@ -28,6 +28,7 @@ import type {
   CreateStateOptions,
   DshrState,
   PendingInteraction,
+  QueuedMessage,
   SessionId,
   SessionSummary,
   WorkspaceId,
@@ -36,6 +37,19 @@ import type {
 
 type SessionListItem = ResponseValue<'session.list'>['items'][number]
 type WorkspaceListValue = ResponseValue<'workspace.list'>
+type QueueFrame = Extract<MuxFrame, { type: 'session/queue' }>
+
+/** 从 `session/queue` 的 message.content 抠纯文本（只认 `{type:'text'}` 块）。 */
+function queueText(item: QueueFrame['items'][number]): string {
+  const parts: string[] = []
+  for (const block of item.message.content) {
+    if (typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'text') {
+      const text = (block as { text?: unknown }).text
+      if (typeof text === 'string') parts.push(text)
+    }
+  }
+  return parts.join('\n')
+}
 
 /** 一个会话的全部内部状态。summary 是每次变化时从它重建的不可变快照。 */
 interface SessionRecord {
@@ -52,6 +66,10 @@ interface SessionRecord {
   pending: Map<RpcId, PendingInteraction>
   /** 泛型投影值表，higher-seq-wins。 */
   projections: Map<string, { value: unknown; seq: number }>
+  /** `session/queue` 的最近一份快照（只留 placement === 'queued' 的）。 */
+  queue: QueuedMessage[]
+  /** 会话事件流里见过 `plan/mode`（形状未知，只有这一个比特）。 */
+  planModeSeen: boolean
 }
 
 function rpcFailure(method: string, error: RpcError): Error {
@@ -107,6 +125,12 @@ class DshrStateImpl implements DshrState {
         onProjections: (block) => {
           this.seedProjections(record, block)
           this.refreshSummary(record)
+        },
+        onPlanMode: () => {
+          if (!record.planModeSeen) {
+            record.planModeSeen = true
+            this.refreshSummary(record)
+          }
         },
       })
       conv.syncStatus(this.statusOf(record), this.pendingOf(record))
@@ -400,8 +424,16 @@ class DshrStateImpl implements DshrState {
         }
         break
       }
+      case 'session/queue': {
+        const record = this.ensureRecord(frame.sessionId)
+        // 整份快照收敛：enqueue/mutation/claim/断线重连都靠同一份权威值。
+        record.queue = frame.items
+          .filter((item) => item.placement === 'queued')
+          .map((item) => ({ id: item.id, text: queueText(item) }))
+        this.refreshSummary(record)
+        break
+      }
       case 'session/subscribed':
-      case 'session/queue':
       case 'session/jobs':
       case 'stream/error':
         break
@@ -413,7 +445,15 @@ class DshrStateImpl implements DshrState {
   private ensureRecord(sessionId: SessionId): SessionRecord {
     let record = this.records.get(sessionId)
     if (!record) {
-      record = { sessionId, running: false, blank: true, pending: new Map(), projections: new Map() }
+      record = {
+        sessionId,
+        running: false,
+        blank: true,
+        pending: new Map(),
+        projections: new Map(),
+        queue: [],
+        planModeSeen: false,
+      }
       this.records.set(sessionId, record)
     }
     return record
@@ -468,6 +508,8 @@ class DshrStateImpl implements DshrState {
       ...(record.agentPreset !== undefined ? { agentPreset: record.agentPreset } : {}),
       ...(pending !== undefined ? { pending } : {}),
       ...(record.error !== undefined ? { error: record.error } : {}),
+      ...(record.queue.length > 0 ? { queue: record.queue } : {}),
+      ...(record.planModeSeen ? { planModeSeen: true as const } : {}),
     }
     this.summaries.set(record.sessionId, summary)
     this.notify()

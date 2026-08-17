@@ -4,6 +4,9 @@
  * 数据形状只认 `@dshr/state` 的公开契约；本包不知道 HTTP/WebSocket 的存在。
  */
 export { Conversation, ItemRow } from './components/Conversation.js'
+export { CommandRow, DividerRow, RetryRow, TodoRow } from './components/AwarenessRows.js'
+export type { CommandItem, DividerItem, RetryItem, TodoViewItem } from './components/AwarenessRows.js'
+export { QueueDock } from './components/QueueDock.js'
 export { Composer, hintFor, insertText, setTerminalColumnsForTest } from './components/Composer.js'
 export type { ComposerHint, ComposerProps } from './components/Composer.js'
 export { Footer } from './components/Footer.js'
