@@ -208,16 +208,37 @@ opencode 的 `tab` 就地循环（`Build` ↔ `Plan`）在 dshr 这边就是在�
                    "active": false, "declared": false } ] }
 ```
 
-### 载荷必填项（**从 zod 报错逼出来的**，这招比读文档快）
+### 写方法的载荷与返回（`tools/probe-methods.mjs` 实测）
 
-| 方法 | 必填 | 怎么知道的 |
+| 方法 | 载荷 | 返回 |
 |---|---|---|
-| `skill.list` | `sessionId: string` | 不传就报 `path:["sessionId"] expected string` |
-| `goal.create` | `objective: string` | 同上，`path:["objective"]` |
+| `session.selectModel` | `{ sessionId, provider, model }` | `{ selected: { provider, model } }` |
+| `agentPreset.select` | `{ sessionId, agentPreset }` ⚠️ | `{ agentPreset }` |
+| `session.rename` | `{ sessionId, title }` | `{ title, seq }` |
+| `session.fork` | `{ sessionId }` | 需要**已完成的一轮**，否则 `fork-unavailable` |
+| `session.search` | `{ query }` | ⚠️ 见下，本部署是关的 |
+| `session.updateQueue` | `{ sessionId, itemId, action: { kind: 'edit' \| 'remove' \| 'steer', … } }` | `action` 是判别联合 |
+| `session.attachment` | `{ sessionId, attachmentId }` | ⚠️ 见下，不是上传 |
+| `skill.list` | `{ sessionId }` | `{ skills: [{ name, description, modelInvocable }] }` |
+| `goal.create` | `{ objective: string, … }` | — |
 | `session.prompt` | `{ sessionId, mode:'queue', content:[{type:'text',text}] }` | 已在 `packages/state/src/state.ts` 验证 |
+
+三个会咬人的地方：
+
+1. **`agentPreset.select` 的键是 `agentPreset`，不是 `presetId`。** 猜错过一次。
+2. **`session.search` 可能被部署关掉。** 实测这台报：
+   `session search is disabled: this deployment configures the session-query index with openAt "never"`。
+   **所以切会话的列表要走 `session.list`，把 `search` 当增强而不是依赖**——
+   没有它也要能用。
+3. **`session.attachment` 不是上传接口。** 传一个不存在的 id 报的是
+   `ATTACHMENT_NOT_REFERENCED`（"Image is not referenced by this session"）——
+   它是**引用会话里已有的图**。真正怎么把一张图送进会话，还没打到，
+   做 D 批前要先搞清楚（很可能走 `session.prompt` 的 `content` 数组里的非 text 项）。
 
 > **打形状的通用招式**：随便传一个空对象过去，`result.error.details.issues` 就是 zod
 > 逐字段列出来的说明书。比翻文档快，而且不会过期。
+> `session.updateQueue` 的 `action.kind` 三个取值就是这么问出来的
+> （`No matching discriminator … Expected 'edit' | 'remove' | 'steer'`）。
 
 ## 九、dsh 自带的工具（25 个，来自 `request/header`）
 
