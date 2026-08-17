@@ -1,12 +1,9 @@
 {
-  "name": "dshr",
+  "name": "@dshr/surface",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
-  "bin": {
-    "dshr": "./lib/main.js"
-  },
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
@@ -21,10 +18,8 @@
     "test": "node --test test/*.test.ts"
   },
   "dependencies": {
-    "@dshr/herdr": "workspace:*",
     "@dshr/protocol": "workspace:*",
     "@dshr/state": "workspace:*",
-    "@dshr/surface": "workspace:*",
     "@dshr/tui": "workspace:*",
     "ink": "^6.0.0",
     "react": "^19.0.0"

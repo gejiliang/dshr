@@ -102,13 +102,24 @@ export async function startSurface(ctx: Context, options: SurfaceOptions): Promi
   await client.connect()
 
   const description = client.state.status === 'ready' ? client.state.host : undefined
-  process.stderr.write(
-    `dshr: in-process carrier ready (${description?.provider ?? '?'}/${description?.model ?? '?'})\n`,
-  )
+  const { mountSurface } = await import('@dshr/surface')
+  const surface = await mountSurface({
+    client,
+    ...(options.runtime.resume !== undefined ? { resume: options.runtime.resume } : {}),
+    ...(description?.model !== undefined ? { model: description.model } : {}),
+    ...(description?.provider !== undefined ? { provider: description.provider } : {}),
+  })
+
+  // 界面退出（Ctrl-C / 面板里的 Exit）就该收掉整棵树——一个 TUI surface 的进程
+  // 没有在界面没了之后继续活着的理由。用 dsh 自己的 `appExit`，别自己 `process.exit`：
+  // 那会跳过 Loader 的拆除，把别的行的收尾一起吞掉。
+  void surface.waitUntilExit().then((code) => {
+    ctx.appExit?.(code)
+  })
 
   return {
     async close() {
-      await client.close()
+      await surface.close()
     },
   }
 }
@@ -138,9 +149,12 @@ export function apply(ctx: Context, config: DshrAppConfig): void {
     console.error(`dshr: terminal surface failed to mount: ${message}`)
   })
   const print = (): void => {
-    const target = runtime.connect ?? `${runtime.host}:${runtime.port}`
+    // ⚠️ 只在**不挂界面**的时候印。挂了界面就闭嘴——ink 接管了这块屏幕，
+    // 往同一个终端 `console.log` 会把画面撕开（那行会留在 ink 的渲染区里，
+    // 下一帧擦不掉）。`--connect` 那条路不在这里挂界面，才需要这行告诉人它起来了。
+    if (runtime.connect === undefined) return
     const suffix = runtime.resume === undefined ? '' : `, resume ${runtime.resume}`
-    console.log(`dshr: host plane settled (${target}${suffix}); terminal surface not yet mounted`)
+    console.log(`dshr: host plane settled; surface attaches to ${runtime.connect}${suffix}`)
   }
   const settled = ctx.get('loader')?.await() as Promise<unknown> | undefined
   if (settled === undefined) print()

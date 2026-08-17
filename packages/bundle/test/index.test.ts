@@ -46,11 +46,21 @@ test('row config (flags folded in by the patch) wins over fallbacks', () => {
   } satisfies DshrRuntime)
 })
 
-test('prints one startup line once the tree has settled (no loader: immediately)', () => {
+test('`--connect` 时印一行启动信息（树 settle 之后；没有 loader 就立刻印）', () => {
   const { ctx } = fakeContext()
-  const { lines } = captureLog(() => apply(ctx as never, { resume: 'session-x' }))
+  const { lines } = captureLog(() =>
+    apply(ctx as never, { connect: 'http://127.0.0.1:39081', resume: 'session-x' }),
+  )
   assert.equal(lines.length, 1)
   assert.match(lines[0]!, /resume session-x/)
+})
+
+test('挂界面时一个字都不许印——ink 接管了这块屏幕', () => {
+  const { ctx } = fakeContext()
+  // 没有 connect = 走进程内、自己挂 ink。这时候 console.log 会把画面撕开：
+  // 那行会留在 ink 的渲染区里，下一帧擦不掉。
+  const { lines } = captureLog(() => apply(ctx as never, { resume: 'session-x' }))
+  assert.deepEqual(lines, [])
 })
 
 test('`--connect` 不走这条接缝：远程 attach 归网络 carrier', async () => {
