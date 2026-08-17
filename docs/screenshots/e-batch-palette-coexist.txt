@@ -1,0 +1,45 @@
+      Commands                                                                                     esc
+                                                                                                              New session
+       Search
+                                                                                                              /private/tmp/dshr-m-shot
+      Suggested
+      Switch model Change the model for this session
+
+      Session
+      Switch session Open another session in this pane
+      Switch agent preset Blank sessions only (host locks it after the first turn)
+      Fork session Branch off from the last completed turn
+      Interrupt Cancel the current turn                                                            esc
+
+      Settings
+      Open settings Edit the settings document in your editor
+      View settings Read-only overview of settings namespaces
+      Configure credentials Which credentials are configured; values live in the settings document
+
+      Model
+      View providers Configurable provider directory (read-only)
+      View models Host-wide model catalog (read-only)
+
+      System
+      Exit the app                                                                              ctrl+c
+
+      Goal
+      Create goal Arm a goal with an objective
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Ask anything... "Fix a TODO in the codebase"
+  ┃
+  ┃  Standard · mock-model mock
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀    • dshr 0.0.0
+  tab preset  ctrl+p commands                                              enter send  shift+enter newline
+/private/tmp/dshr-m-shot                                                                                                       • connected  mock-model

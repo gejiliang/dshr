@@ -3,85 +3,86 @@ import { Box, Text, useInput } from 'ink'
 import { theme } from '../theme.js'
 
 export interface DialogPromptProps {
-  /** 左上角标题，右上角永远是 `esc`。 */
+  /** 左上角标题，右上角永远是 `esc`（与 DialogSelect 的标题行同构）。 */
   readonly title: string
-  /** 输入框占位符（muted）。 */
+  /** 初始内容（重命名带当前标题），非受控。 */
+  readonly initial?: string
   readonly placeholder?: string
-  /** 标题下一行的 muted 说明。 */
-  readonly hint?: string
-  readonly onSubmit: (value: string) => void
+  /** enter 确认；**空文本不提交**（重命名这类空值本来就会被 host 拒，title-invalid）。 */
+  readonly onSubmit: (text: string) => void
+  /** esc 取消。 */
   readonly onCancel: () => void
 }
 
 /**
- * 最小单行文本输入对话框（`Attach image` 这类要一个路径/名字的入口）。
- * C 批没留下 `DialogPrompt`，这是那个位置的最小实现：布局照 `DialogSelect`
- * 的标题行与搜索框（标题 paddingLeft=4、输入区 backgroundPanel 底色 + primary 光标块）。
- * 单行编辑：追加、退格、enter 提交、esc 取消——不做光标移动（输路径用不到）。
+ * 单行文本输入对话框（重命名用）。`DialogSelect` 是选择用的，这是它的输入型兄弟：
+ * 同一套 chrome（标题行 + esc、backgroundPanel 输入行），但内容是一行可编辑文本。
+ *
+ * 键位：字符在光标处插入、backspace/delete、左右方向键；enter 提交、esc 取消。
  */
-export function DialogPrompt({ title, placeholder = '', hint, onSubmit, onCancel }: DialogPromptProps) {
-  const [text, setText] = useState('')
-  // useInput 回调闭包可能过期、连续按键之间渲染未必已提交——镜像进 ref 且同步更新。
-  const textRef = useRef(text)
-  textRef.current = text
-  const apply = (next: string): void => {
-    textRef.current = next
-    setText(next)
+export function DialogPrompt({ title, initial = '', placeholder, onSubmit, onCancel }: DialogPromptProps) {
+  const [text, setText] = useState(initial)
+  const [cursor, setCursor] = useState(initial.length)
+  // 与 Composer 同一条纪律：useInput 回调闭包可能过期，状态镜像进 ref 且同步更新。
+  const stateRef = useRef({ text, cursor })
+  stateRef.current = { text, cursor }
+  const apply = (next: { text: string; cursor: number }) => {
+    stateRef.current = next
+    setText(next.text)
+    setCursor(next.cursor)
   }
 
   useInput((input, key) => {
+    const { text: current, cursor: at } = stateRef.current
     if (key.escape) {
       onCancel()
       return
     }
     if (key.return) {
-      const value = textRef.current.trim()
-      if (value !== '') onSubmit(value)
+      const trimmed = current.trim()
+      if (trimmed !== '') onSubmit(trimmed)
       return
     }
     if (key.backspace || key.delete) {
-      apply(textRef.current.slice(0, -1))
+      if (at > 0) apply({ text: current.slice(0, at - 1) + current.slice(at), cursor: at - 1 })
       return
     }
-    if (key.ctrl || key.meta || input === '') return
-    apply(textRef.current + input.replace(/\r/g, ''))
+    if (key.leftArrow) {
+      apply({ text: current, cursor: Math.max(0, at - 1) })
+      return
+    }
+    if (key.rightArrow) {
+      apply({ text: current, cursor: Math.min(current.length, at + 1) })
+      return
+    }
+    if (key.ctrl || key.meta || key.tab || input === '') return
+    const inserted = input.replace(/\r/g, '')
+    apply({ text: current.slice(0, at) + inserted + current.slice(at), cursor: at + inserted.length })
   })
 
+  const glyph = text[cursor] ?? ' '
   return (
     <Box flexDirection="column">
-      {/* 标题行：paddingLeft=4 paddingRight=4，标题左、esc 右 */}
+      {/* 标题行：与 DialogSelect 同（paddingLeft=4 paddingRight=4，标题左、esc 右） */}
       <Box paddingLeft={4} paddingRight={4} justifyContent="space-between">
         <Text color={theme.text} bold>
           {title}
         </Text>
         <Text color={theme.textMuted}>esc</Text>
       </Box>
-      {hint !== undefined ? (
-        <Box paddingLeft={4} paddingRight={4}>
-          <Text color={theme.textMuted}>{hint}</Text>
-        </Box>
-      ) : null}
       <Box height={1} flexShrink={0} />
-      {/* 输入框：底色 backgroundPanel，光标 primary */}
+      {/* 输入行：backgroundPanel 底色、inverse 光标块（同 DialogSelect 的搜索行） */}
       <Box paddingLeft={4} paddingRight={4} backgroundColor={theme.backgroundPanel}>
-        {text === '' ? (
-          <>
-            <Text backgroundColor={theme.primary}> </Text>
-            <Text color={theme.textMuted}>{placeholder}</Text>
-          </>
-        ) : (
-          <>
-            <Text color={theme.text}>{text}</Text>
-            <Text backgroundColor={theme.primary}> </Text>
-          </>
-        )}
+        <Text color={theme.text}>{text.slice(0, cursor)}</Text>
+        <Text backgroundColor={theme.primary}>{glyph === ' ' ? ' ' : glyph}</Text>
+        <Text color={theme.text}>{text.slice(cursor + (text[cursor] !== undefined ? 1 : 0))}</Text>
+        {text === '' && placeholder !== undefined ? (
+          <Text color={theme.textMuted}> {placeholder}</Text>
+        ) : null}
       </Box>
       <Box height={1} flexShrink={0} />
-      <Box paddingLeft={4}>
-        <Text>
-          <Text color={theme.textMuted}>submit </Text>
-          <Text color={theme.text}>enter</Text>
-        </Text>
+      <Box paddingLeft={4} paddingRight={4}>
+        <Text color={theme.textMuted}>enter confirm</Text>
       </Box>
     </Box>
   )

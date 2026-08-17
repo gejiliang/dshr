@@ -59,13 +59,26 @@ function EntryRow({ entry, first, preset, width }: { entry: Entry; first?: boole
   )
 }
 
-/** 单个 entry 的近似行数（尾部窗口预算用；宽度按正文列宽估计）。 */
+/**
+ * 一个条目**实际**占多少行——尾部窗口的预算靠它。
+ *
+ * ⚠️ **必须把 `marginTop={1}` 算进去。** 除首条用户消息外，
+ * 每个行组件外层 Box 都有 `marginTop={1}`（MessageRow / ToolRow / ReasoningRow /
+ * AwarenessRows / TurnRow 全都有），估算漏掉它就是**每条少算一行**。
+ *
+ * 踩过：150×45 下连发十轮，30 个条目少算 30 行，预算 37 行而实际渲染 ~67 行，
+ * 整个 row 比终端高 → 终端滚动 → **右侧信息列（矮、贴顶）被顶出画面，看起来像凭空消失**。
+ * 当时先怀疑是宽度被撑开，钉死列宽没用——是高度。
+ *
+ * 宁可高估：高估只是少显示一条历史，低估会毁掉整个布局。
+ */
 function entryRows(entry: Entry, wrapWidth: number): number {
   if (entry.kind === 'older-hint') return 1
-  if (entry.kind === 'user') return 2 + wrappedLineCount(entry.text, wrapWidth)
-  if (entry.kind === 'assistant') return wrappedLineCount(entry.text, wrapWidth)
-  if (entry.kind === 'todo') return entry.todos.length + 1
-  return 1
+  const margin = 1
+  if (entry.kind === 'user') return margin + 2 + wrappedLineCount(entry.text, wrapWidth)
+  if (entry.kind === 'assistant') return margin + wrappedLineCount(entry.text, wrapWidth)
+  if (entry.kind === 'todo') return margin + entry.todos.length + 1
+  return margin + 1
 }
 
 /** 消息流。 */

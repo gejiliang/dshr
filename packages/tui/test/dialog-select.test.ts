@@ -239,3 +239,149 @@ test('命令面板：注册表渲染成 Commands 对话框，键位用 ", " 连�
   assert.strictEqual(ran, 'exit', 'enter 应派发选中命令')
   app.unmount()
 })
+
+test('动作条：ctrl+r 触发 onTrigger，带上当前高亮项的 value', async (t) => {
+  t.after(cleanup)
+  const triggered: (string | undefined)[] = []
+  const app = render(
+    h(DialogSelect, {
+      title: 'Sessions',
+      options: OPTIONS,
+      actions: [{ label: 'rename', key: 'ctrl+r', onTrigger: (v) => triggered.push(v) }],
+      ...NOP,
+    }),
+  )
+  await flush()
+  app.stdin.write('\x1b[B') // down → 第二项 tips
+  await flush()
+  app.stdin.write('\x12') // ctrl+r
+  await flush()
+  assert.deepEqual(triggered, ['tips'], 'onTrigger 应带当前高亮项的 value')
+  app.unmount()
+})
+
+test('动作条：没有 onTrigger 的动作只是展示（不会因为按下而炸）', async (t) => {
+  t.after(cleanup)
+  const app = render(
+    h(DialogSelect, {
+      title: 'Sessions',
+      options: OPTIONS,
+      actions: [{ label: 'delete', key: 'ctrl+d' }],
+      ...NOP,
+    }),
+  )
+  await flush()
+  app.stdin.write('\x04') // ctrl+d
+  await flush()
+  assert.ok((app.lastFrame() ?? '').includes('Sessions'), '对话框应还在')
+  app.unmount()
+})
+
+test('远程搜索（增强）：返回 value 序时按它过滤与排序', async (t) => {
+  t.after(cleanup)
+  const app = render(
+    h(DialogSelect, {
+      title: 'Sessions',
+      options: OPTIONS,
+      remoteSearch: (query) =>
+        Promise.resolve(query === 's' ? ['status', 'tips'] : []),
+      ...NOP,
+    }),
+  )
+  await flush()
+  app.stdin.write('s')
+  await flush(60) // 等远程结果落地
+  const frame = app.lastFrame() ?? ''
+  const lines = frame.split('\n')
+  const iStatus = lines.findIndex((l) => l.includes('View status'))
+  const iTips = lines.findIndex((l) => l.includes('Hide tips'))
+  assert.ok(iStatus !== -1 && iTips !== -1, '远程匹配的两项都应在')
+  assert.ok(iStatus < iTips, '顺序应按远程返回的序（status 在 tips 前）')
+  assert.ok(!frame.includes('Open docs'), '不在远程结果里的条目应被滤掉')
+  app.unmount()
+})
+
+test('远程搜索：返回 undefined（部署关掉了 search）退回本地过滤，照样能用', async (t) => {
+  t.after(cleanup)
+  let calls = 0
+  const app = render(
+    h(DialogSelect, {
+      title: 'Sessions',
+      options: OPTIONS,
+      remoteSearch: () => {
+        calls++
+        return Promise.resolve(undefined)
+      },
+      ...NOP,
+    }),
+  )
+  await flush()
+  app.stdin.write('status')
+  await flush(60)
+  const frame = app.lastFrame() ?? ''
+  assert.ok(frame.includes('View status'), '本地过滤应照常工作')
+  assert.ok(!frame.includes('Open docs'), '不匹配的条目应被滤掉')
+  app.stdin.write('!') // query 变成 status! —— 已标记不可用，不应再调远程
+  await flush(60)
+  assert.strictEqual(calls, 1, '标记不可用后不应再调远程搜索')
+  app.unmount()
+})
+
+test('远程搜索：抛错同样退回本地过滤', async (t) => {
+  t.after(cleanup)
+  const app = render(
+    h(DialogSelect, {
+      title: 'Sessions',
+      options: OPTIONS,
+      remoteSearch: () => Promise.reject(new Error('connection lost')),
+      ...NOP,
+    }),
+  )
+  await flush()
+  app.stdin.write('status')
+  await flush(60)
+  assert.ok((app.lastFrame() ?? '').includes('View status'), '抛错后本地过滤应照常工作')
+  app.unmount()
+})
+
+test('suggested 命令：未过滤时只在 Suggested 里露一次，一搜本体登场（回归）', async (t) => {
+  t.after(cleanup)
+  // 这条钉死一个真踩过的 bug：早先把 suggested 命令**归类**成 Suggested 而不是复制，
+  // 于是一输入过滤就把条目本身删了——`Switch model` 是唯一 suggested 命令，
+  // 搜 `model` 返回 No results found，最要紧的那条命令反而搜不到。
+  let ran = ''
+  const registry = createCommandRegistry()
+  registry.register({
+    name: 'model.switch',
+    title: 'Switch model',
+    suggested: true,
+    run: () => {
+      ran = 'model'
+    },
+  })
+  registry.register({
+    name: 'session.switch',
+    title: 'Switch session',
+    category: 'Session',
+    run: () => {},
+  })
+  const app = render(h(CommandPalette, { registry, onClose: () => {} }))
+  await flush()
+
+  const unfiltered = app.lastFrame() ?? ''
+  assert.ok(unfiltered.includes('Suggested'), '未过滤应有 Suggested 分组')
+  const occurrences = unfiltered.split('Switch model').length - 1
+  assert.strictEqual(occurrences, 1, `未过滤时 Switch model 只该出现一次，实际 ${occurrences} 次`)
+
+  app.stdin.write('model')
+  await flush()
+  const filtered = app.lastFrame() ?? ''
+  assert.ok(filtered.includes('Switch model'), '搜 model 必须找得到 Switch model')
+  assert.ok(!filtered.includes('Suggested'), '过滤后 Suggested 分组应消失')
+  assert.ok(!filtered.includes('Switch session'), '不匹配的命令应被滤掉')
+
+  app.stdin.write('\r')
+  await flush()
+  assert.strictEqual(ran, 'model', '选中过滤后的本体应派发到原命令名（不带 suggested: 前缀）')
+  app.unmount()
+})

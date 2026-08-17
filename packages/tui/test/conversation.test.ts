@@ -243,3 +243,29 @@ test('maxRows 尾部窗口：超预算时截最旧的条目，最新内容始终
   assert.ok(!frame.includes('message number 0'), '最旧条目应被截掉')
   app.unmount()
 })
+
+test('maxRows 是**真实**行数预算：渲染出来不许超（回归）', async (t) => {
+  t.after(cleanup)
+  // 这条钉死一个真踩过的 bug：`entryRows` 漏算了每个行组件的 `marginTop={1}`，
+  // 每条少算一行。150×45 下连发十轮（30 个条目）就少算 30 行，
+  // 预算 37 行而实际渲染 ~67 行 → 整个 row 比终端高 → 终端滚动 →
+  // **右侧信息列（矮、贴顶）被顶出画面，看起来像凭空消失**。
+  // 当时先怀疑宽度被撑开，钉死列宽没用——是高度。
+  //
+  // 断言实际行数而不是估算值：估算是手段，"不超过预算"才是要保的性质。
+  const MAX_ROWS = 20
+  const items = []
+  for (let i = 0; i < 12; i++) {
+    items.push({ kind: 'user', id: `u${i}`, text: `第 ${i} 轮提问` })
+    items.push({ kind: 'assistant', id: `a${i}`, text: `第 ${i} 轮回答`, streaming: false })
+    items.push({ kind: 'turn', id: `t${i}`, durationMs: 30 })
+  }
+  const view = makeView(items)
+  const app = render(h(Conversation, { view, maxRows: MAX_ROWS, contentWidth: 80 }))
+  await flush()
+  const frame = (app.lastFrame() ?? '').replaceAll('\r', '')
+  const lines = frame.split('\n').length
+  assert.ok(lines <= MAX_ROWS, `渲染 ${lines} 行，超过预算 ${MAX_ROWS} 行`)
+  assert.ok(frame.includes('第 11 轮回答'), '最新内容必须还在窗口里')
+  app.unmount()
+})
