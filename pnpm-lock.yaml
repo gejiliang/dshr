@@ -50,6 +50,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.1
         version: 3.18.1
+      '@dshr/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       commander:
         specifier: ^15.0.0
         version: 15.0.0

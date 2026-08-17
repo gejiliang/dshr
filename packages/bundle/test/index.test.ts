@@ -53,8 +53,27 @@ test('prints one startup line once the tree has settled (no loader: immediately)
   assert.match(lines[0]!, /resume session-x/)
 })
 
-test('the surface seam mounts nothing in this version', async () => {
+test('`--connect` 不走这条接缝：远程 attach 归网络 carrier', async () => {
   const { ctx } = fakeContext()
-  const handle = await startSurface(ctx as never, { runtime: { host: '127.0.0.1', port: 39080 } })
+  // 给了 connect 就该在碰 apiProxy 之前直接返回——这个 fake 上根本没有 apiProxy，
+  // 所以「没抛错」本身就是「没去碰它」的证明。
+  const handle = await startSurface(ctx as never, {
+    runtime: { host: '127.0.0.1', port: 39080, connect: 'http://127.0.0.1:39081' },
+  })
   assert.equal(handle, undefined)
+})
+
+test('profile 少了 api-gateway 行时，报一句人能读懂的话', async () => {
+  const { ctx } = fakeContext()
+  await assert.rejects(
+    () => startSurface(ctx as never, { runtime: { host: '127.0.0.1', port: 39080 } }),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      // 少一行是最容易犯的错，而 `--dump-config` 看不出来（组合阶段不检查服务依赖）。
+      // 所以这里必须指名道姓，不能是 TypeError: Cannot read properties of undefined。
+      assert.match(message, /api-gateway/)
+      assert.match(message, /dsh-host-apiproxy/)
+      return true
+    },
+  )
 })

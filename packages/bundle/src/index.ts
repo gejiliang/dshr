@@ -17,11 +17,16 @@ import type { DshrStartup } from './startup.js'
 export const name = 'dshr-app'
 
 /**
- * Plugin-level injection: none. The Loader row carries `inject:
- * [dshrStartup]` so its lazy config expressions resolve only after
- * `dshr-startup` has provided the parsed flags.
+ * Plugin-level injection: `apiProxy` — the host's dispatch face, provided by
+ * the `api-gateway` row (`@deepseek-ai/dsh-host-apiproxy`). The surface talks
+ * to the host plane through it, in-process, with no port and no socket.
+ *
+ * The Loader row separately carries `inject: [dshrStartup]` so its lazy config
+ * expressions resolve only after `dshr-startup` has provided the parsed flags.
+ * Row-level and plugin-level injection are different lists on purpose: the
+ * former gates config evaluation, the latter gates the plugin body.
  */
-export const inject: string[] = []
+export const inject: string[] = ['apiProxy']
 
 /** Runtime service holding the resolved invocation values. */
 export const DSHR_RUNTIME_SERVICE = 'dshrRuntime'
@@ -79,9 +84,33 @@ export interface SurfaceOptions {
  * @returns the mounted surface's handle, or `undefined` while no surface exists.
  */
 export async function startSurface(ctx: Context, options: SurfaceOptions): Promise<SurfaceHandle | undefined> {
-  void ctx
-  void options
-  return undefined
+  // `--connect <url>` 明确要求接一台别人的 host：那条路走网络 carrier，不在这里。
+  if (options.runtime.connect !== undefined) return undefined
+
+  // 进程内 carrier：`ctx.apiProxy` 由 `api-gateway` 行提供（插件级 inject 已声明）。
+  // 上游注释：`new InProcessApiClient(toFetchHandler(api))` never touches the network。
+  if (ctx.apiProxy === undefined) {
+    // 说人话，别抛 TypeError：profile 少了一行是最容易犯的错，而
+    // `--dump-config` 看不出来（组合阶段不检查服务依赖，见 docs/profile.md）。
+    throw new Error(
+      'dshr: ctx.apiProxy is missing — the profile has no `api-gateway` row ' +
+        "(name: '@deepseek-ai/dsh-host-apiproxy'). See docs/profile.md.",
+    )
+  }
+  const { createInProcessClient } = await import('@dshr/protocol')
+  const client = createInProcessClient({ api: ctx.apiProxy })
+  await client.connect()
+
+  const description = client.state.status === 'ready' ? client.state.host : undefined
+  process.stderr.write(
+    `dshr: in-process carrier ready (${description?.provider ?? '?'}/${description?.model ?? '?'})\n`,
+  )
+
+  return {
+    async close() {
+      await client.close()
+    },
+  }
 }
 
 /**
@@ -99,7 +128,15 @@ export function apply(ctx: Context, config: DshrAppConfig): void {
     ...config.resume !== undefined && { resume: config.resume },
   }
   ctx.provide(DSHR_RUNTIME_SERVICE, runtime)
-  void startSurface(ctx, { runtime })
+
+  // ⚠️ **必须接住**。`startSurface` 现在真的会做事（建进程内 carrier、连 host），
+  // 也就真的会失败。裸的 `void startSurface(...)` 会把失败变成 unhandledRejection——
+  // 在 Node 里那是**默认杀进程**的，而且报错栈里看不出是 dshr 干的。
+  // 踩过：加了 apiProxy 守卫之后，bundle 的单测立刻以「测试结束后的异步活动」形式暴露了这条。
+  void startSurface(ctx, { runtime }).catch((error: unknown) => {
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error)
+    console.error(`dshr: terminal surface failed to mount: ${message}`)
+  })
   const print = (): void => {
     const target = runtime.connect ?? `${runtime.host}:${runtime.port}`
     const suffix = runtime.resume === undefined ? '' : `, resume ${runtime.resume}`
