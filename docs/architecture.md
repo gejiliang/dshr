@@ -62,8 +62,7 @@
 | `@dshr/protocol` | dsh `/api` 线协议 carrier | 只依赖 `@deepseek-ai/dsh-host-apiproxy`（类型）与 `ws` |
 | `@dshr/state` | headless 客户端模型：会话、工作区、状态、对话 | `@dshr/protocol` |
 | `@dshr/tui` | **会话视图与输入框——照搬 opencode**（判据：`opencode-reference.md` 的实测截屏） | `@dshr/state`, ink |
-| `@dshr/orchestrate` | 编排动词。**目前没有任何入口调用它**，见文末 | `@dshr/protocol` |
-| `@dshr/bundle` | dshr profile bundle（`cordis.patch.yml` + startup provider） | — |
+| `@dshr/bundle` | **cordis 插件行 `dshr-app`**：提供 `dshrRuntime`，并拥有 TUI 挂载的接缝 `startSurface`（目前是 stub） | — |
 | `dshr` (`packages/cli`) | `dshr` 可执行文件：一个 pane 一个会话的全屏 TUI | protocol / state / tui |
 
 ### `@dshr/protocol`
@@ -215,14 +214,22 @@ herdr pane report-agent --source <id> --agent dsh \
 
 所以上报逻辑住在 dshr 进程内部，状态变化时**当场**报一次；插件清单只负责让 herdr 认识它。
 
-### `@dshr/orchestrate`
+### 编排不在这里（`@dshr/orchestrate` 已删，2026-08-17）
 
-动词，仅此而已：`spawn` / `send` / `wait` / `cancel` / `list`，加一个**可配置的硬上限**
-（默认值可覆盖，运行时可调，工具里再钉一个绝对上界）。
+曾经有过一个 `@dshr/orchestrate`：`spawn` / `send` / `wait` / `cancel` / `list` +
+可配置硬上限，555 行、13 个测试，**但没有任何入口调用它**。已删除
+（要看它长什么样：`git log -- packages/orchestrate`）。
 
-上限这条是踩出来的教训（herdgent）：并行会话失控是静默的，所以闸门不能没有；
-但每次编排规模不同，写死会挡住合理的大扇出。**存「人显式设过的值」，别把启动时写回的值
-当成人设的**——两者无法区分会导致改默认值对所有跑过的仓库静默无效。
+**理由是层次，不是重复。** dshr 是 dsh 的 TUI 客户端插件，客户端不该拥有编排动词：
+
+- 编排是 [herdgent](https://github.com/gejiliang/herdgent) 的岗位，它已经在做
+- **dsh 自己就把编排暴露成模型工具**——实测那 25 个工具里有
+  `subagent` / `subagent_fork` / `workflow` / `ralph` / `list_agents` /
+  `send_message` / `interrupt_agent`。客户端的本分是**把它们画出来**，不是另起一套
+
+真正该补的是反过来那一半：`subagent.list` / `history` / `prompt` / `interrupt`
+四个 RPC 还没接——现在能看见父会话里的 subagent 工具行，但**进不去子会话**。
+前置障碍见 [`gap-shapes.md`](gap-shapes.md) §五。
 
 ## 运行形态
 

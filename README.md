@@ -59,9 +59,8 @@ dshr calls **26 of dsh's 52 RPC methods**, handles **all 19** downlink frame typ
 | `@dshr/state` | ✅ | frames folded into a renderable model — 16 tests |
 | `@dshr/tui` | ✅ | the session surface, in opencode's shape — [`docs/opencode-port.md`](docs/opencode-port.md) |
 | `@dshr/herdr` | ✅ | reports session state to herdr's sidebar — 6 tests |
-| `@dshr/bundle` | ✅ | the dsh profile bundle — 12 tests, `--dump-config` composes clean |
+| `@dshr/bundle` | ⚠️ | the cordis plugin row (`dshr-app`) — 12 tests, `--dump-config` composes clean, but `startSurface` is still a stub — see below |
 | `dshr` (cli) | ✅ | one pane, one session |
-| `@dshr/orchestrate` | ⚠️ | orchestration verbs, tested, **but nothing calls them** — see below |
 
 ## Install
 
@@ -198,11 +197,22 @@ remote client's capability surface is genuinely smaller.
 
 ## Not done yet
 
-- **Orchestration is not reachable.** `@dshr/orchestrate` implements and tests spawn / send /
-  wait / cancel / list with a configurable hard cap, but nothing calls it. Running inside herdr,
-  orchestration is arguably [herdgent](https://github.com/gejiliang/herdgent)'s job, and this
-  package may simply be deleted.
+- **You can't step into a subagent.** The transcript shows the subagent tool row
+  (`✓ General Task — …`), but `subagent.list` / `history` / `prompt` / `interrupt` aren't wired,
+  so you can't see what it did or talk to it. Blocked on a real problem: measured
+  `host/session-added` carries no `parentSessionId` or `origin`, so parent↔child can't be linked
+  ([`docs/gap-shapes.md`](docs/gap-shapes.md) §五).
+- **The plugin seam is a stub.** `@dshr/bundle` is the cordis plugin row (`dshr-app`) that
+  provides `dshrRuntime` and owns `startSurface` — the one function where the TUI mounts as a dsh
+  surface. Today it returns `undefined` and the CLI spawns `dsh web` and talks HTTP over loopback
+  instead. Wiring it is what makes dshr a plugin rather than a program that happens to speak dsh's
+  wire protocol.
 - **Remote attach.** Loopback only, on purpose — see above.
+
+Orchestration used to be here (`@dshr/orchestrate`) and was **deleted** on 2026-08-17: a TUI
+client shouldn't own orchestration verbs. That's [herdgent](https://github.com/gejiliang/herdgent)'s
+job, and dsh already exposes orchestration as model tools (`subagent`, `workflow`, `ralph`,
+`list_agents`, `send_message`, `interrupt_agent`) — the client's job is to render them.
 
 ## License
 

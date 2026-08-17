@@ -135,7 +135,10 @@ dshr server                # 只起 host、不开 TUI
 
 ## 六、还不能用的东西
 
-- **编排动词还没接进产品**。`@dshr/orchestrate` 的 spawn/send/wait/cancel/list 写好也测好了，
-  但没有任何入口能调到它。现在 dshr 跑在 herdr 里，编排本来就是 herdgent 的活——
-  **这个包很可能该直接删掉**。
+- **进不去子 agent 的会话**。对话里能看见 `✓ General Task — …` 这行，但
+  `subagent.list` / `history` / `prompt` / `interrupt` 没接，看不到它做了什么、也发不了话给它。
+  卡在实测 `host/session-added` 不带 `parentSessionId`／`origin`，父子关联建不起来。
+- **插件接缝还是 stub**。`@dshr/bundle` 是 cordis 插件行，但 `startSurface` 目前返回
+  `undefined`；实际跑的是「spawn 一个 `dsh web` + 走 loopback HTTP」。
+  把这个接缝接上，dshr 才真的是插件，而不是一个恰好会说 dsh 线协议的程序。
 - **远程 attach 没做**。host 只绑 loopback，跨机器要 dshr 自带认证层，现在没有。

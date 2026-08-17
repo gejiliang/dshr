@@ -319,7 +319,10 @@ workflow  write
 
 ⚠️ **注意 `subagent` / `subagent_fork` / `workflow` / `ralph` / `list_agents` /
 `send_message` / `interrupt_agent`——dsh 自己就带编排原语。**
-这与 `@dshr/orchestrate` 的去留直接相关：那个包在重复 dsh 已经有的东西。
+**这是 `@dshr/orchestrate` 被删掉的判据之一**（2026-08-17）：编排是 dsh 自己的能力，
+以模型工具的形式暴露；dshr 是 TUI 客户端插件，本分是**把这些画出来**，不是另起一套动词。
+反过来那一半才是该补的——`subagent.list` / `history` / `prompt` / `interrupt` 还没接，
+所以现在看得见 subagent 的工具行，却进不去它的会话。
 
 ## 十、后台任务 —— `session/jobs`（mux 帧）
 
