@@ -62,7 +62,8 @@
 | `@dshr/protocol` | dsh `/api` 线协议 carrier | 只依赖 `@deepseek-ai/dsh-host-apiproxy`（类型）与 `ws` |
 | `@dshr/state` | headless 客户端模型：会话、工作区、状态、对话 | `@dshr/protocol` |
 | `@dshr/tui` | **会话视图与输入框——照搬 opencode**（判据：`opencode-reference.md` 的实测截屏） | `@dshr/state`, ink |
-| `@dshr/bundle` | **cordis 插件行 `dshr-app`**：提供 `dshrRuntime`，并拥有 TUI 挂载的接缝 `startSurface`（目前是 stub） | — |
+| `@dshr/surface` | **把一个会话挂成终端界面**，与 carrier 无关（会话解析、raw mode 下的 0x03、收尾预算）。插件路与 `--connect` 路**共用这一份** | `@dshr/protocol` / `state` / `tui`, ink |
+| `@dshr/bundle` | **cordis 插件行 `dshr-app`**：提供 `dshrRuntime`，`startSurface` 用**进程内 carrier** 把 TUI 挂起来（零端口零 socket） | `@dshr/protocol` / `@dshr/surface` |
 | `dshr` (`packages/cli`) | `dshr` 可执行文件：一个 pane 一个会话的全屏 TUI | protocol / state / tui |
 
 ### `@dshr/protocol`
