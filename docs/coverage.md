@@ -181,16 +181,39 @@ C 批没做——面板只放动词，不画按不动的按钮。
 `opencode-dialogs.md` 里的对应图。对不上就继续改——
 不要贴一张对不上的图然后说做完了。
 
-## 六、已知问题（发现但没修的，记这里）
+## 六、修过的坑（结论，别再重新推理一遍）
 
-- **对话超过一屏后 Sidebar 内容消失**（只剩底部版本行）。2026-08-17 实测，不是 E 批引入的
-  （在 E 批之前的 6a4cd6a 上用 git stash 复现过）。
-  - **触发量**：150×45 的 pane（`conversationRows` = 45−6−1−1 = 37），连续发 **8 条短提示**
-    （每条产生 user + assistant + turn 页脚 ≈ 3~4 行渲染行，合计 ~30+ 行、开始超过一屏）后
-    右栏的标题 / workspace / Context / Goal 块全没了；一屏以内（2 条提示）是好的。
-  - **怎么复现**：mock + host（docs/profile.md 的零凭据链路），tmux `-x 150 -y 45` 起 TUI，
-    `send-keys` 连发 8 轮。`capture-pane -p` 右栏 105~150 列全空，`-e` 能看到 backgroundPanel
-    底色还在——**盒子和版本行在，文本子树没了**。
-  - **排查起点**：`session-app.tsx` 非空分支的行布局（`Conversation maxRows={conversationRows}`
-    + `Box flexGrow` + 钉底输入框）与 `Conversation.tsx` 的滚动截断——疑似左列内容超高时
-    yoga 把右栏（固定 width 42）的文本挤没了，先验证 maxRows 截断是否真生效。
+### 对话超过一屏后 Sidebar 内容消失 —— 已修（`6772be8`）
+
+**根因不是宽度，是高度。** 当时先猜「左列内容超高时 yoga 把右栏挤没了」，
+按这个猜想给会话列钉死 `width` + `flexShrink={0}`——**没用**。
+
+真正的原因：`Conversation.tsx` 的 `entryRows()` 估算行数时**漏算了每个行组件的
+`marginTop={1}`**（MessageRow / ToolRow / ReasoningRow / AwarenessRows / TurnRow 全都有），
+每条少算一行。150×45 下连发十轮 = 30 个条目 = 少算 30 行：预算 37 行，
+实际渲染 ~67 行 → 整个 row 比终端高 → 终端滚动 → **矮且贴顶的右栏被顶出画面**。
+
+修法是把 margin 算进估算，并**宁可高估**（高估只少显示一条历史，低估毁掉整个布局）。
+回归测试 `packages/tui/test/conversation.test.ts` 断言的是**实际渲染行数 ≤ maxRows**，
+不是估算值本身——把 margin 改回 0 会立刻红（实测 `渲染 31 行，超过预算 20 行`）。
+
+### 命令面板里 `Switch model` 一搜就消失 —— 已修（`e9f779f`）
+
+`suggested` 的命令被**归类**成 `Suggested` 分组，而过滤时「丢掉 Suggested」的实现
+把**条目本身**删了，于是最要紧的那条命令反而搜不到（搜 `model` 返回 `No results found`）。
+
+上游 `command-palette.tsx` 的 `list()` 是「suggested 副本 + 完整列表」**两段拼接**，
+副本 value 加 `suggested:` 前缀。dshr 用 `DialogSelectOption.onlyWhenFiltered` 表达同一语义：
+未过滤只显示副本，过滤只显示本体。**`filterOptions` 的 `query === ''` 分支别改回 `[...options]`**，
+有回归测试钉着。
+
+## 七、还剩 24 个方法没接 —— 分类与理由
+
+跑 `sh tools/coverage.sh` 看当前列表。到 2026-08-17 为止剩下的，按**为什么不接**分四类：
+
+| 类 | 方法 | 理由 |
+|---|---|---|
+| **归 herdr** | `workspace.delete` / `insertBefore` / `insertSessionBefore` / `archiveSession`、`host.pickDirectory` / `listDirectory` / `createDirectory` / `openPath` | 工作区与文件选择是 herdr 的活，重做一遍就是上次那个方向性错误 |
+| **故意不做** | `settings.update` / `replace` / `mutate`、`credentials.set` / `unset` | 上游给了 `settings.openDocument`，意图就是用编辑器改配置。**在终端里明文输密钥是坏主意**，且本项目章程规定凭证值只进 gitignored 的 `secrets/` |
+| **形状没打到 / 打不了** | `session.attachment`（读回接口，发图走 `session.prompt`，见 §gap-shapes 八）、`llm.discoverModels`（会打真实 provider，验证期不该调）、`agentPreset.read` / `copy` / `openDocument` / `remove`（写作面，loopback 钉死的特权方法）、`goal.edit` | 见各自条目 |
+| **真缺口，还没做** | `subagent.list` / `history` / `prompt` / `interrupt` | ⬅️ **这是唯一一条「本可以做但没做」的**。A 批画出了父会话里的 subagent 工具行（`✓ General Task — …`），但**进不去子会话**——看不到它干了什么、也发不了话给它。要做得先解决 `gap-shapes.md` §五 记的那个问题：实测 `host/session-added` **没带** `parentSessionId` / `origin`，父子关联无从建立 |
