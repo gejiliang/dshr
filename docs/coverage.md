@@ -61,7 +61,16 @@ workspace 列表/创建/重命名、上下文 token、往 herdr 报 idle/working
 | `subagent/descriptor` | 不画 | `✓ General Task — <描述>` + `↳` 子行；未完图标 `│`，完成 `✓` |
 | `hook/invoked` `hook/result` | 不画 | 工具行形状 |
 | `goal/change` `schedule/change` | 不画 | 通知行 |
-| `session/queue`（帧已收，未渲染） | 收到了但看不见 | 反色徽章 ` QUEUED `，底色用 agent 色 |
+| `session/queue` | **帧进了 switch 就被 `break` 丢掉**，state 根本没存 | 反色徽章 ` QUEUED `，底色用 agent 色 |
+| `session/jobs` | 同上，被丢掉——**后台任务在界面上完全不存在** | 见下 |
+
+> ⚠️ `session/queue` 与 `session/jobs` 的措辞要准：不是「收到了没画」，
+> 是 `packages/state/src/state.ts` 里这两个 case 直接 `break`，**没有任何存储**。
+> 要渲染得先在 state 层存下来。
+>
+> `session/jobs` 是**后来才发现的缺口**（原清单漏了）。判据：dsh 自带
+> `job_list` / `job_kill` / `job_output` 三个工具，说明后台任务是真实存在的东西，
+> 而 dshr 一个都不显示。`JobView` 的形状见 [`gap-shapes.md`](gap-shapes.md) §十。
 
 ### B 批 —— 命令面板（前置件）
 

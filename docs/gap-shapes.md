@@ -283,3 +283,29 @@ workflow  write
 ⚠️ **注意 `subagent` / `subagent_fork` / `workflow` / `ralph` / `list_agents` /
 `send_message` / `interrupt_agent`——dsh 自己就带编排原语。**
 这与 `@dshr/orchestrate` 的去留直接相关：那个包在重复 dsh 已经有的东西。
+
+## 十、后台任务 —— `session/jobs`（mux 帧）
+
+`@deepseek-ai/dsh-host-apiproxy/api/jobs` 里的 `JobView`：
+
+```ts
+interface JobView {
+  id: JobId
+  kind: string
+  label: string
+  status: 'running' | 'stopping' | 'completed' | 'killed' | 'failed'
+  detail?: string
+  startedAt: number
+  finishedAt?: number
+}
+```
+
+帧是 `{ type:'session/jobs', sessionId, jobs: JobView[] }`。
+
+**现状：`packages/state/src/state.ts` 收到这个 case 直接 `break`，什么都不存。**
+dsh 自带 `job_list` / `job_kill` / `job_output` 三个工具——后台任务是真实存在的，
+只是 dshr 一个都不显示。
+
+渲染建议：底部栏一个计数 chip（有 running 的时候才画），命令面板一条
+`View background jobs` 开 `DialogSelect` 列出来（`label` 作标题、`kind`+耗时作 muted 说明、
+`status` 决定颜色）。**`job_kill` 是模型的工具，不是 RPC——dshr 这层只做展示，不要造杀任务的 RPC。**
