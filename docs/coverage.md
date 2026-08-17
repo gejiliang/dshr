@@ -6,26 +6,34 @@
 > 重数的办法（改完代码要重跑）：
 >
 > ```sh
-> # RPC 方法：dshr 调了哪些
-> grep -rhoE "'(session|subagent|host|workspace|skill|agentPreset|goal|settings|credentials|llm)\.[a-zA-Z]+'" packages/*/src | tr -d "'" | sort -u
->
-> # 会话事件：dshr 的 fold 认哪些
-> grep -rhoE "'[a-z]+/[a-z/_-]+'" packages/state/src | tr -d "'" | sort -u
->
-> # 上游全集（权威清单，不是文档措辞）
-> grep -oE "'[a-z]+/[a-z/_-]+'" \
->   node_modules/.pnpm/@deepseek-ai+dsh-session@*/node_modules/@deepseek-ai/dsh-session/lib/types/known-event-types.js \
->   | tr -d "'" | sort -u
+> sh tools/coverage.sh
 > ```
+>
+> **别手写 grep 数 RPC**，两个坑都真踩过：
+>
+> 1. 命令注册表里的命令名（`session.interrupt` / `session.switch`）长得跟 RPC 一模一样，
+>    直接 grep 会把它们算成 RPC，数字虚高——必须**与 `RpcMethodMap` 求交集**
+> 2. 全表大小要从**上游类型**读：`dsh-contract.md` §三 的标题原先写「51 个」，
+>    实际是 **52** 条（它自己列的那张表就是 52 条）。文档措辞会过期，类型不会
+>
+> `host.close` 是 dshr 自己 spawn 的 host 对象上的本地方法，**不是 RPC**，不计入。
 
-## 三个分母（2026-08-17 实测，dsh 0.1.0-rc.6）
+## 三个分母（2026-08-17，dsh 0.1.0-rc.6）
 
-| 面 | 覆盖 | 说明 |
-|---|---|---|
-| RPC 方法 | 16 / 51 | `host.close` 是 dshr 自己 spawn 的 host 对象上的本地方法，**不是 RPC**，不计入；
-    grep 会多匹配到命令注册表里的 `session.interrupt` / `session.switch`（命令名，不是 RPC），不计 |
-| 下行帧 | 19 / 19 | MuxFrame 10 + HostFrame 9，**全接了** |
-| 会话事件 | 8 / 39 | 上游 `known-event-types.js` 是权威清单 |
+| 面 | 起点 | 现在 | 说明 |
+|---|---|---|---|
+| RPC 方法 | 9 / 52 | **16 / 52** | A~C 批之后；D/E 批覆盖余下的大部分 |
+| 下行帧 | 19 / 19 | 19 / 19 | MuxFrame 10 + HostFrame 9，**一开始就全接了** |
+| 会话事件（fold 认得的） | 8 / 39 | **18 / 39** | 上游 `known-event-types.js` 是权威清单 |
+
+fold 现在认得的 18 个（`grep -oE "case '[a-z]+/[a-z/_-]+'" packages/state/src/conversation.ts`）：
+
+```
+assistant/chunk  assistant/message  command/done  command/run
+compaction/end  compaction/prune  compaction/start  compaction/summary
+llm/retry  llm/retry-started  plan/mode  step/start  todo/write
+tool/call  tool/result  turn/end  turn/start  user/message
+```
 
 帧那层是满的，所以连接、重放、状态机完整。**缺口全在两处**：帧收到了但没画，方法根本没调。
 
