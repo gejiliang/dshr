@@ -70,3 +70,31 @@ test('logo：左右两半、加粗右半、4 行方块字', async (t) => {
   assert.ok(out.includes(fg(theme.text)), '右半 text')
   app.unmount()
 })
+
+test('logo 拼的是 dshr —— 四个字形，d 与 h 各有一个升部点（回归）', async (t) => {
+  t.after(cleanup)
+  // 钉一个真踩过的 bug：早先的字形是自己近似的「等价变体」，
+  // `d` 是个光秃秃的闭合方框（其实是 o）、`s` 是两条一样的横杠，根本读不出 dshr。
+  // 上游字库（sst/opencode packages/tui/src/logo.ts）里 `d` = `o` + **右立柱上方一个 ▄**，
+  // 那一点就是 d 与 o 的全部区别；漏掉它，logo 就在说别的词。
+  const app = render(h(Logo, {}))
+  await flush()
+  const stripped = (app.lastFrame() ?? '').replaceAll('\r', '').replace(/\[[0-9;]*m/g, '')
+  const rows = stripped.split('\n')
+
+  // 第 0 行是升部行：d（左半，右立柱上）与 h（右半，左立柱上）各一个 ▄。
+  const ascenders = (rows[0]?.match(/▄/g) ?? []).length
+  assert.strictEqual(ascenders, 2, `升部点应为 2 个（d 和 h），实际 ${ascenders}：${JSON.stringify(rows[0])}`)
+
+  // 字形行：四个 4 宽字形，空格分组 —— d s | h r。
+  const glyphRow = rows[1] ?? ''
+  const glyphs = glyphRow.trim().split(/\s+/)
+  assert.strictEqual(glyphs.length, 4, `应为四个字形（d s h r），实际 ${glyphs.length}：${JSON.stringify(glyphRow)}`)
+
+  // d 是闭合方框；h 与 r 用 `▀▀▄` 收肩（照上游 n 的构形），与 d 明确不同形。
+  assert.strictEqual(glyphs[0], '█▀▀█', 'd 的方框')
+  assert.notStrictEqual(glyphs[1], glyphs[0], 's 不能与 d 同形')
+  assert.strictEqual(glyphs[2], '█▀▀▄', 'h 的肩')
+  assert.strictEqual(glyphs[3], '█▀▀▄', 'r 的肩')
+  app.unmount()
+})
