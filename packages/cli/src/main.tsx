@@ -18,7 +18,7 @@ import { createDshrClient } from '@dshr/protocol'
 import { createState, type SessionId } from '@dshr/state'
 import { mountSurface } from '@dshr/surface'
 import { FlagError, parseFlags, USAGE, type ParsedFlags } from './flags.js'
-import { ensureHost, runServer, type HostHandle } from './host.js'
+import { runProfile } from './profile.js'
 
 const require = createRequire(import.meta.url)
 
@@ -32,19 +32,20 @@ function ownVersion(): string | undefined {
   }
 }
 
-async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<number> {
-  // --connect 给了就直接用，绝不再自己起 host。
-  const host: HostHandle =
-    flags.connect !== undefined
-      ? { baseUrl: flags.connect, owned: false, close: () => Promise.resolve() }
-      : await ensureHost({ port: flags.port })
-
-  const client = createDshrClient({ baseUrl: host.baseUrl })
+/**
+ * `--connect <url>`：接一台**别人已经起好**的 host。
+ *
+ * ⚠️ 这条路**不走 profile**，也不在本进程里起 host plane。理由：profile 会无条件
+ * 挂一整套 storage / agent / sessions，attach 到别人 host 的时候那套完全用不上，
+ * 还会和目标 host 抢同一个 `$DSH_HOME/sessions`。
+ * 所以这里是一个光杆 Node 进程：HTTP+WS carrier + 同一个 `@dshr/surface`。
+ */
+async function runConnected(flags: Extract<ParsedFlags, { mode: 'tui' }> & { connect: string }): Promise<number> {
+  const client = createDshrClient({ baseUrl: flags.connect })
   try {
     await client.connect()
   } catch (error) {
-    await host.close()
-    process.stderr.write(`连不上 host ${host.baseUrl}: ${error instanceof Error ? error.message : String(error)}\n`)
+    process.stderr.write(`连不上 host ${flags.connect}: ${error instanceof Error ? error.message : String(error)}\n`)
     return 1
   }
 
@@ -53,13 +54,10 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
   const provider = described.ok ? described.value.provider : undefined
   const version = ownVersion()
 
-  // state 由**这里**建并持有：herdr 的上报要用它，拆除顺序也归这条路自己管
-  // （所以下面 mountSurface 传了 state，它就不会去 dispose 别人的东西）。
   const state = createState({ client })
   const active: { current?: SessionId } = {}
   // ⚠️ herdr 上报**不是 `@dshr/surface` 的依赖，是这条路注入的**。
-  // 「给 dshr 做 herdr 插件」是下一期的事，不是 dsh 插件本身的职责；
-  // 插件路（`dsh --profile dshr`）不会走到这里。
+  // 「给 dshr 做 herdr 插件」是下一期的事，不是 dsh 插件本身的职责。
   // 不在 herdr 里跑时 startReporter 自己是 no-op（判据是 HERDR_PANE_ID 在不在）。
   let reporter: { dispose(): Promise<void> } | undefined
 
@@ -80,10 +78,8 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
         beforeTeardown: async () => {
           await reporter?.dispose()
         },
-        // state 与自己拉起的 host 归这条路关。
         afterTeardown: async () => {
           await state.dispose().catch(() => {})
-          await host.close().catch(() => {})
         },
       },
     })
@@ -91,7 +87,6 @@ async function runTui(flags: Extract<ParsedFlags, { mode: 'tui' }>): Promise<num
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     await state.dispose().catch(() => {})
     await client.close().catch(() => {})
-    await host.close().catch(() => {})
     return 1
   }
 
@@ -116,8 +111,12 @@ export async function main(argv: readonly string[]): Promise<number> {
     process.stdout.write(USAGE)
     return 0
   }
-  if (flags.mode === 'server') return runServer({ port: flags.port })
-  return runTui(flags)
+  // 裸跑 = 插件路：交给 `dsh --profile dshr`，界面在那个进程里挂（零端口）。
+  // 只有 `--connect` 才留在这个进程里，用 HTTP carrier 接别人的 host。
+  if (flags.connect === undefined) {
+    return runProfile({ ...(flags.resume !== undefined ? { resume: flags.resume } : {}) })
+  }
+  return runConnected({ ...flags, connect: flags.connect })
 }
 
 const invokedDirectly =
