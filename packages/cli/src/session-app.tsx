@@ -10,6 +10,7 @@
  * （width 42，pane 窄于 100 列整列折叠），底部一行 cwd + 状态 chip。
  *
  * C 批：切模型 / 切预设（tab 就地循环 + 面板项）/ 切会话 / 重命名 / 分叉。
+ * E 批：设置 / 凭证 / provider / 部署级模型清单 / 目标动词。
  * 数据形状全部来自 docs/gap-shapes.md §八 的实测载荷，不转译。
  */
 import type { DshrClient } from '@dshr/protocol'
@@ -27,17 +28,22 @@ import {
   DialogPrompt,
   DialogSelect,
   Footer,
+  LazyDialogSelect,
   Logo,
   PendingPrompt,
   QueueDock,
   Sidebar,
   createCommandRegistry,
+  credentialOptions,
+  modelOptions,
+  providerOptions,
+  settingsOptions,
   theme,
   type CommandRegistry,
   type DialogSelectOption,
 } from '@dshr/tui'
 import { Box, Text, useApp, useInput, useStdout } from 'ink'
-import { useEffect, useReducer, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState, type ReactElement } from 'react'
 
 export interface SessionAppProps {
   readonly state: DshrState
@@ -55,13 +61,21 @@ export interface SessionAppProps {
 /** 右侧信息列的折叠阈值：herdr 的 pane 经常只有 60 列。 */
 const SIDEBAR_MIN_COLUMNS = 100
 
-/** 打开的对话框；空 = 没有。对话框整区接管会话区（ink 没有浮层，见 docs/opencode-dialogs.md §四）。 */
+/**
+ * 打开的对话框；空 = 没有。对话框整区接管会话区（ink 没有浮层，见 docs/opencode-dialogs.md §四）。
+ * C 批的是带载荷的（取完数再开）；E 批的是「取数→展示」懒加载型，不需要 payload。
+ */
 type DialogState =
   | { readonly kind: 'palette' }
   | { readonly kind: 'model'; readonly data: SessionModels }
   | { readonly kind: 'preset'; readonly presets: readonly AgentPresetEntry[] }
   | { readonly kind: 'sessions'; readonly items: readonly SessionListEntry[] }
   | { readonly kind: 'rename'; readonly sessionId: SessionId; readonly initial: string }
+  | { readonly kind: 'settings' }
+  | { readonly kind: 'credentials' }
+  | { readonly kind: 'providers' }
+  | { readonly kind: 'models' }
+  | { readonly kind: 'goal-create' }
 
 /** 从投影里取上下文用量（键名见 docs/dsh-contract.md 第五之二节）。 */
 function contextUsage(
@@ -99,6 +113,23 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * E 批动词的回执：进会话视图的 notice 行（durable、跟着会话走）。
+ * 与 C 批的 showNotice（8 秒 transient 警告条）是两个面——goal 的成败是
+ * 会话历史的一部分（CAS 冲突、phase 竞态），不该 8 秒后消失。
+ */
+function notify(state: DshrState, sessionId: SessionId, text: string): void {
+  state.conversation(sessionId).pushNotice(text)
+}
+
+/** goal 动词成功后的回执用词。 */
+const GOAL_DONE: Record<'pause' | 'resume' | 'complete' | 'clear', string> = {
+  pause: 'paused',
+  resume: 'resumed',
+  complete: 'completed',
+  clear: 'cleared',
+}
+
 /** 模型对话框条目的 value：`[provider, model]` 的 JSON（id 里可能带 `/`，别拼字符串）。 */
 function modelValue(provider: string, model: string): string {
   return JSON.stringify([provider, model])
@@ -121,8 +152,12 @@ function parseModelValue(value: string): { provider: string; model: string } | u
   return undefined
 }
 
-/** 模型目录 → DialogSelect 条目（同构映射：groups→category、name→标题、current→●）。 */
-function modelOptions(data: SessionModels): DialogSelectOption[] {
+/**
+ * 会话级模型目录（`session.models`）→ DialogSelect 条目
+ * （同构映射：groups→category、name→标题、current→●）。
+ * ⚠️ 与 `@dshr/tui` 的 `modelOptions`（`llm.models`，**部署级**清单）是两个东西，别合。
+ */
+function sessionModelOptions(data: SessionModels): DialogSelectOption[] {
   const out: DialogSelectOption[] = []
   for (const group of data.groups) {
     for (const model of group.models) {
@@ -182,7 +217,7 @@ export function SessionApp({
     onSessionChange?.(id)
   }
 
-  // ── 对话框（ctrl+p 面板 / 模型 / 预设 / 会话 / 重命名）───────────
+  // ── 对话框（ctrl+p 面板 / 模型 / 预设 / 会话 / 重命名 / E 批懒加载型）───
   // state 镜像进 ref：useInput 回调闭包可能过期，按键到达那一刻现问。
   const [dialog, setDialogState] = useState<DialogState | null>(null)
   const dialogRef = useRef<DialogState | null>(null)
@@ -263,6 +298,16 @@ export function SessionApp({
     }
   }
 
+  // ── E 批：只读对话框的取数函数（引用必须稳定——LazyDialogSelect 的
+  //    useEffect 依赖它，变了就重取）──────────────────────────────
+  const loadSettings = useCallback(async () => settingsOptions(await state.describeSettings()), [state])
+  const loadCredentials = useCallback(
+    async () => credentialOptions(await state.describeCredentials()),
+    [state],
+  )
+  const loadProviders = useCallback(async () => providerOptions(await state.listProviders()), [state])
+  const loadModels = useCallback(async () => modelOptions(await state.listModelCatalog()), [state])
+
   // ── 命令注册表（只注册真命令——每条都走通了的路径）──────────────
   const registryRef = useRef<CommandRegistry | null>(null)
   if (registryRef.current === null) {
@@ -304,6 +349,52 @@ export function SessionApp({
       bindings: ['esc'],
       run: () => void state.cancel(activeRef.current),
     })
+    // E 批：设置 / 凭证 / provider / 部署级模型清单。设计取向是「打开文档」而不是
+    // 在 TUI 里做配置编辑器——上游自带 openDocument 就是这个意图。
+    // settings.update/replace/mutate 与 credentials.set/unset 会写真实 ~/.dsh，
+    // state 层故意不包它们，这里自然也没有入口。
+    registry.register({
+      name: 'settings.open',
+      title: 'Open settings',
+      desc: 'Edit the settings document in your editor',
+      category: 'Settings',
+      run: async () => {
+        try {
+          await state.openSettingsDocument()
+          notify(state, activeRef.current, 'Settings document handed to the system editor.')
+        } catch (error) {
+          notify(state, activeRef.current, `Open settings failed: ${errorText(error)}`)
+        }
+      },
+    })
+    registry.register({
+      name: 'settings.view',
+      title: 'View settings',
+      desc: 'Read-only overview of settings namespaces',
+      category: 'Settings',
+      run: () => setDialog({ kind: 'settings' }),
+    })
+    registry.register({
+      name: 'credentials.view',
+      title: 'Configure credentials',
+      desc: 'Which credentials are configured; values live in the settings document',
+      category: 'Settings',
+      run: () => setDialog({ kind: 'credentials' }),
+    })
+    registry.register({
+      name: 'llm.providers',
+      title: 'View providers',
+      desc: 'Configurable provider directory (read-only)',
+      category: 'Model',
+      run: () => setDialog({ kind: 'providers' }),
+    })
+    registry.register({
+      name: 'llm.models',
+      title: 'View models',
+      desc: 'Host-wide model catalog (read-only)',
+      category: 'Model',
+      run: () => setDialog({ kind: 'models' }),
+    })
     registry.register({
       name: 'app.exit',
       title: 'Exit the app',
@@ -314,6 +405,66 @@ export function SessionApp({
     registryRef.current = registry
   }
   const registry = registryRef.current
+
+  // goal 动词：没有目标时**隐藏**（章程：不许静默失败也不许假按钮）。
+  // ref 在派发那一刻现读（revision 会被模型的自动轮次推进，存旧 ref 必撞
+  // GOAL_STALE_REVISION——实测，见 packages/state/src/goal.ts）。
+  const goal = state.goalOf(activeSessionId)
+  const goalId = goal?.id
+  const goalPhase = goal?.phase
+  useEffect(() => {
+    const hasGoal = goalId !== undefined && goalPhase !== undefined
+    const verb = (kind: 'pause' | 'resume' | 'complete' | 'clear') => async (): Promise<void> => {
+      const call = { pause: state.pauseGoal, resume: state.resumeGoal, complete: state.completeGoal, clear: state.clearGoal }[kind]
+      const id = activeRef.current
+      try {
+        await call.call(state, id)
+        notify(state, id, `Goal ${GOAL_DONE[kind]}.`)
+      } catch (error) {
+        notify(state, id, `Goal ${kind} failed: ${errorText(error)}`)
+      }
+    }
+    registry.register({
+      name: 'goal.create',
+      title: 'Create goal',
+      desc: 'Arm a goal with an objective',
+      category: 'Goal',
+      hidden: hasGoal,
+      run: () => setDialog({ kind: 'goal-create' }),
+    })
+    registry.register({
+      name: 'goal.pause',
+      title: 'Pause goal',
+      desc: 'Disarm automatic continuation',
+      category: 'Goal',
+      hidden: goalPhase !== 'active',
+      run: () => void verb('pause')(),
+    })
+    registry.register({
+      name: 'goal.resume',
+      title: 'Resume goal',
+      desc: 'Re-arm a paused or blocked goal',
+      category: 'Goal',
+      hidden: goalPhase !== 'paused' && goalPhase !== 'blocked',
+      run: () => void verb('resume')(),
+    })
+    registry.register({
+      name: 'goal.complete',
+      title: 'Complete goal',
+      desc: 'Mark the current goal complete',
+      category: 'Goal',
+      hidden: !hasGoal || goalPhase === 'complete',
+      run: () => void verb('complete')(),
+    })
+    registry.register({
+      name: 'goal.clear',
+      title: 'Clear goal',
+      desc: 'Drop the current goal (tombstone is kept)',
+      category: 'Goal',
+      hidden: !hasGoal,
+      run: () => void verb('clear')(),
+    })
+  }, [state, activeSessionId, registry, goalId, goalPhase])
   const { stdout } = useStdout()
   const columns = stdout !== undefined && stdout.columns > 0 ? stdout.columns : 80
   const rows = stdout !== undefined && stdout.rows > 0 ? stdout.rows : 24
@@ -355,7 +506,7 @@ export function SessionApp({
     if (dialogRef.current !== null) return
     if (key.ctrl && input === 'p' && pending === undefined) setDialog({ kind: 'palette' })
   })
-  // 面板开着时来了审批/提问：让路，关掉面板。
+  // 面板/对话框开着时来了审批/提问：让路，关掉。
   const pendingKind = pending?.kind
   useEffect(() => {
     if (pendingKind !== undefined && dialogRef.current !== null) setDialog(null)
@@ -405,21 +556,22 @@ export function SessionApp({
   const dialogElement = (() => {
     if (dialog === null) return null
     const close = (): void => setDialog(null)
+    const maxHeight = Math.max(5, conversationRows - 6)
     switch (dialog.kind) {
       case 'palette':
         return (
           <CommandPalette
             registry={registry}
             onClose={close}
-            maxHeight={Math.max(5, conversationRows - 6)}
+            maxHeight={maxHeight}
           />
         )
       case 'model':
         return (
           <DialogSelect
             title="Select model"
-            options={modelOptions(dialog.data)}
-            maxHeight={Math.max(5, conversationRows - 6)}
+            options={sessionModelOptions(dialog.data)}
+            maxHeight={maxHeight}
             onSelect={(value) => {
               close()
               const selection = parseModelValue(value)
@@ -438,7 +590,7 @@ export function SessionApp({
           <DialogSelect
             title="Select agent preset"
             options={presetOptions(dialog.presets, current)}
-            maxHeight={Math.max(5, conversationRows - 6)}
+            maxHeight={maxHeight}
             onSelect={(value) => {
               close()
               state
@@ -459,7 +611,7 @@ export function SessionApp({
             remoteSearch={(query) =>
               state.searchSessions(query).then((ids) => ids?.map(String))
             }
-            maxHeight={Math.max(5, conversationRows - 6)}
+            maxHeight={maxHeight}
             // dsh 没有 pin 这个概念，不造；delete 归 herdr。底部动作条只有 rename。
             actions={[
               {
@@ -494,6 +646,61 @@ export function SessionApp({
               state
                 .renameSession(dialog.sessionId, title)
                 .catch((error: unknown) => showNotice(errorText(error)))
+            }}
+            onCancel={close}
+          />
+        )
+      // ── E 批：懒加载只读对话框 + goal-create 输入框 ─────────────
+      case 'settings':
+        return (
+          <LazyDialogSelect
+            title="Settings"
+            load={loadSettings}
+            onClose={close}
+            maxHeight={maxHeight}
+            note="Read-only view · edit in your editor with the “Open settings” command"
+          />
+        )
+      case 'credentials':
+        return (
+          <LazyDialogSelect
+            title="Credentials"
+            load={loadCredentials}
+            onClose={close}
+            maxHeight={maxHeight}
+            note="Values never leave the host · set them in the settings document (“Open settings”)"
+          />
+        )
+      case 'providers':
+        return (
+          <LazyDialogSelect
+            title="Providers"
+            load={loadProviders}
+            onClose={close}
+            maxHeight={maxHeight}
+          />
+        )
+      case 'models':
+        return (
+          <LazyDialogSelect
+            title="Models"
+            load={loadModels}
+            onClose={close}
+            maxHeight={maxHeight}
+          />
+        )
+      case 'goal-create':
+        return (
+          <DialogPrompt
+            title="Create goal"
+            placeholder="Objective"
+            onSubmit={(objective) => {
+              close()
+              const id = activeRef.current
+              state.createGoal(id, objective).then(
+                () => notify(state, id, 'Goal created.'),
+                (error: unknown) => notify(state, id, `Goal create failed: ${errorText(error)}`),
+              )
             }}
             onCancel={close}
           />
@@ -554,6 +761,19 @@ export function SessionApp({
             workspace={abbreviateHome(cwd)}
             {...(tokens !== undefined ? { contextTokens: tokens } : {})}
             {...(percent !== undefined ? { contextPercent: percent } : {})}
+            {...(goal !== undefined
+              ? {
+                  goal: {
+                    objective: goal.objective,
+                    phase: goal.phase,
+                    ...(goal.blockedReason !== undefined
+                      ? { blockedReason: goal.blockedReason }
+                      : {}),
+                    roundsStarted: goal.roundsStarted,
+                    maxGoalRounds: goal.maxGoalRounds,
+                  },
+                }
+              : {})}
             {...(version !== undefined ? { version } : {})}
           />
         ) : null}

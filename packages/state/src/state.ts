@@ -21,19 +21,26 @@ import type {
   Unsubscribe,
 } from '@dshr/protocol'
 import { Conversation, type ProjectionsBlock } from './conversation.js'
+import { collectCredentialRefs } from './credentials.js'
+import { parseGoalProjection } from './goal.js'
 import type {
   AgentPresetEntry,
   AgentStatus,
   ApprovalOutcome,
   ConversationView,
   CreateStateOptions,
+  CredentialRefState,
   DshrState,
+  GoalInfo,
+  ModelCatalog,
   PendingInteraction,
+  ProviderEntry,
   QueuedMessage,
   SessionId,
   SessionListEntry,
   SessionModels,
   SessionSummary,
+  SettingsOverview,
   WorkspaceId,
   WorkspaceSummary,
 } from './types.js'
@@ -317,6 +324,102 @@ class DshrStateImpl implements DshrState {
       record.pending.delete(entry.rpcId)
       this.refreshSummary(record)
     }
+  }
+
+  // ---- E 批：设置 / 凭证 / provider / 目标 ----
+
+  async describeSettings(): Promise<SettingsOverview> {
+    const res = await this.client.call('settings.describe', {})
+    if (!res.ok) throw rpcFailure('settings.describe', res.error)
+    return res.value
+  }
+
+  async openSettingsDocument(): Promise<void> {
+    const res = await this.client.call('settings.openDocument', {})
+    if (!res.ok) throw rpcFailure('settings.openDocument', res.error)
+  }
+
+  async listProviders(): Promise<readonly ProviderEntry[]> {
+    const res = await this.client.call('llm.providers', {})
+    if (!res.ok) throw rpcFailure('llm.providers', res.error)
+    return res.value.providers
+  }
+
+  async listModelCatalog(): Promise<ModelCatalog> {
+    const res = await this.client.call('llm.models', {})
+    if (!res.ok) throw rpcFailure('llm.models', res.error)
+    return res.value
+  }
+
+  async describeCredentials(): Promise<readonly CredentialRefState[]> {
+    const [settings, providers] = await Promise.all([
+      this.client.call('settings.describe', {}),
+      this.client.call('llm.providers', {}),
+    ])
+    if (!settings.ok) throw rpcFailure('settings.describe', settings.error)
+    if (!providers.ok) throw rpcFailure('llm.providers', providers.error)
+    const refs = collectCredentialRefs(settings.value, providers.value.providers)
+    if (refs.size === 0) return []
+    const described = await this.client.call('credentials.describe', { refs: [...refs.keys()] })
+    if (!described.ok) throw rpcFailure('credentials.describe', described.error)
+    const out: CredentialRefState[] = []
+    for (const [ref, holders] of refs) {
+      const view = described.value.credentials[ref]
+      out.push({
+        ref,
+        configured: view?.configured ?? false,
+        ...(view?.source !== undefined ? { source: view.source } : {}),
+        writable: view?.writable ?? false,
+        holders,
+      })
+    }
+    return out
+  }
+
+  goalOf(sessionId: SessionId): GoalInfo | undefined {
+    const record = this.records.get(sessionId)
+    const cell = record?.projections.get('goal')
+    return parseGoalProjection(cell?.value)
+  }
+
+  async createGoal(sessionId: SessionId, objective: string): Promise<void> {
+    const res = await this.client.call('goal.create', { sessionId, objective })
+    if (!res.ok) throw rpcFailure('goal.create', res.error)
+  }
+
+  async pauseGoal(sessionId: SessionId): Promise<void> {
+    await this.goalVerb('pause', sessionId)
+  }
+
+  async resumeGoal(sessionId: SessionId): Promise<void> {
+    await this.goalVerb('resume', sessionId)
+  }
+
+  async completeGoal(sessionId: SessionId): Promise<void> {
+    await this.goalVerb('complete', sessionId)
+  }
+
+  async clearGoal(sessionId: SessionId): Promise<void> {
+    await this.goalVerb('clear', sessionId)
+  }
+
+  /**
+   * ref 现读：revision 被模型的自动轮次持续推进，调用方存下来的任何旧 ref
+   * 都会撞 GOAL_STALE_REVISION（实测，见 goal.ts 的注释）。
+   */
+  private async goalVerb(verb: 'pause' | 'resume' | 'complete' | 'clear', sessionId: SessionId): Promise<void> {
+    const goal = this.goalOf(sessionId)
+    if (goal === undefined) throw new Error(`goal.${verb}: 当前会话没有目标`)
+    const payload = { sessionId, ref: { id: goal.id, revision: goal.revision } }
+    const res =
+      verb === 'pause'
+        ? await this.client.call('goal.pause', payload)
+        : verb === 'resume'
+          ? await this.client.call('goal.resume', payload)
+          : verb === 'complete'
+            ? await this.client.call('goal.complete', payload)
+            : await this.client.call('goal.clear', payload)
+    if (!res.ok) throw rpcFailure(`goal.${verb}`, res.error)
   }
 
   async dispose(): Promise<void> {
