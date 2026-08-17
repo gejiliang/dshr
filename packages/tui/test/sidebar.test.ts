@@ -71,30 +71,40 @@ test('logo：左右两半、加粗右半、4 行方块字', async (t) => {
   app.unmount()
 })
 
-test('logo 拼的是 dshr —— 四个字形，d 与 h 各有一个升部点（回归）', async (t) => {
+test('logo 拼的是 dshr —— 钉住两次被人读错的那两处（回归）', async (t) => {
   t.after(cleanup)
-  // 钉一个真踩过的 bug：早先的字形是自己近似的「等价变体」，
-  // `d` 是个光秃秃的闭合方框（其实是 o）、`s` 是两条一样的横杠，根本读不出 dshr。
-  // 上游字库（sst/opencode packages/tui/src/logo.ts）里 `d` = `o` + **右立柱上方一个 ▄**，
-  // 那一点就是 d 与 o 的全部区别；漏掉它，logo 就在说别的词。
+  // 这个 logo 返工过两次，**两次都是人一眼读错才发现的**，两次都不是「字符写错了」：
+  //
+  //   第一稿 → 被读成 `oshr`：d 只有闭合方框、没有升部。上游字库里
+  //            `d` = `o` + 右立柱上方一个凸起，那一点就是 d 与 o 的全部区别。
+  //   第二稿 → 被读成 `dsbc`：h 的碗底用了上游 n 的暗色中段 `~~`，暗色在终端里
+  //            几乎看不出来，碗看着是闭合的（= b）；r 带一整条底边，四面围起来（= c）。
+  //
+  // 所以这里断言的不是「字符长什么样」，而是**让它读得出来的那几条几何性质**：
+  // 升部在不在、碗开不开、底边有没有多画。换字形时这些必须仍然成立。
+  //
+  // ⚠️ 单测钉不住「读不读得出来」——那只能靠眼睛：`node tools/logo.mjs`。
   const app = render(h(Logo, {}))
   await flush()
-  const stripped = (app.lastFrame() ?? '').replaceAll('\r', '').replace(/\[[0-9;]*m/g, '')
-  const rows = stripped.split('\n')
+  const stripped = (app.lastFrame() ?? '').replaceAll('\r', '').replace(/\u001b\[[0-9;]*m/g, '')
+  const rows = stripped.split('\n').map((r) => r.padEnd(19, ' '))
+  // 字形槽：每个 4 宽、空一格 —— d[0..3] s[5..8] h[10..13] r[15..18]
+  const slot = (row: number, start: number): string => (rows[row] ?? '').slice(start, start + 4)
+  const riser = (ch: string): boolean => ch === '▄' || ch === '█'
 
-  // 第 0 行是升部行：d（左半，右立柱上）与 h（右半，左立柱上）各一个 ▄。
-  const ascenders = (rows[0]?.match(/▄/g) ?? []).length
-  assert.strictEqual(ascenders, 2, `升部点应为 2 个（d 和 h），实际 ${ascenders}：${JSON.stringify(rows[0])}`)
+  assert.strictEqual(slot(1, 0), '█▀▀█', 'd 的碗')
+  assert.ok(riser(slot(0, 0)[3] ?? ' '), `d 的升部必须在右立柱正上方，否则就是 o：${JSON.stringify(rows[0])}`)
+  assert.ok(riser(slot(0, 10)[0] ?? ' '), `h 的升部必须在左立柱正上方：${JSON.stringify(rows[0])}`)
 
-  // 字形行：四个 4 宽字形，空格分组 —— d s | h r。
-  const glyphRow = rows[1] ?? ''
-  const glyphs = glyphRow.trim().split(/\s+/)
-  assert.strictEqual(glyphs.length, 4, `应为四个字形（d s h r），实际 ${glyphs.length}：${JSON.stringify(glyphRow)}`)
+  // h 的碗底必须**真开口**（两条腿）。用暗色糊过去就会被读成 b。
+  assert.strictEqual(slot(3, 10), '▀  ▀', 'h 的底部必须是两条腿，中间不能有任何东西')
 
-  // d 是闭合方框；h 与 r 用 `▀▀▄` 收肩（照上游 n 的构形），与 d 明确不同形。
-  assert.strictEqual(glyphs[0], '█▀▀█', 'd 的方框')
-  assert.notStrictEqual(glyphs[1], glyphs[0], 's 不能与 d 同形')
-  assert.strictEqual(glyphs[2], '█▀▀▄', 'h 的肩')
-  assert.strictEqual(glyphs[3], '█▀▀▄', 'r 的肩')
+  // r 的肩下面什么都没有；多画一条底边就围成 c 了。
+  assert.strictEqual(slot(3, 15).trimEnd(), '▀', 'r 的底边只留立柱那一格')
+  assert.strictEqual(slot(2, 15).trimEnd(), '█', 'r 的肩下只有立柱')
+
+  // 四个字形不能有两个同形，否则读出来必然是别的词。
+  assert.notStrictEqual(slot(1, 0), slot(1, 5), 'd 与 s 不能同形')
+  assert.notStrictEqual(slot(1, 0), slot(1, 10), 'd 与 h 不能同形')
   app.unmount()
 })
