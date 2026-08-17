@@ -230,10 +230,41 @@ opencode 的 `tab` 就地循环（`Build` ↔ `Plan`）在 dshr 这边就是在�
    `session search is disabled: this deployment configures the session-query index with openAt "never"`。
    **所以切会话的列表要走 `session.list`，把 `search` 当增强而不是依赖**——
    没有它也要能用。
-3. **`session.attachment` 不是上传接口。** 传一个不存在的 id 报的是
-   `ATTACHMENT_NOT_REFERENCED`（"Image is not referenced by this session"）——
-   它是**引用会话里已有的图**。真正怎么把一张图送进会话，还没打到，
-   做 D 批前要先搞清楚（很可能走 `session.prompt` 的 `content` 数组里的非 text 项）。
+3. **`session.attachment` 不是上传接口，是读回接口。** 传一个不存在的 id 报的是
+   `ATTACHMENT_NOT_REFERENCED`（"Image is not referenced by this session"）。
+   上传走 `session.prompt`，见下。
+
+### 图片怎么进会话（D 批用）
+
+`@deepseek-ai/dsh-host-apiproxy/api/sessions` 里的 `PromptContentPart`：
+
+```ts
+type PromptContentPart =
+  | { type: 'text';  text: string }
+  | { type: 'image'; mediaType: ImageMediaType; data: string; name?: string }
+
+type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+```
+
+流程是三段：
+
+1. **发**：`session.prompt` 的 `content` 数组里直接塞 `{type:'image', mediaType, data}`，
+   `data` 是字符串（base64）。上游注释：**"the host promotes image bytes to durable references"**
+   ——字节由 host 收下并转成持久引用，客户端不需要先上传。
+2. **自查**：`imageLimits` 投影给出这台部署的限额，客户端**提交前**就该拒掉超限的：
+   ```ts
+   interface ImageAttachmentLimits {
+     maxImageBytes: number; maxImagesPerMessage: number
+     maxMessageImageBytes: number; maxImagePixels: number
+     mediaTypes: readonly ImageMediaType[]
+   }
+   ```
+3. **读回**：`session.attachment` → `{ sessionId, attachmentId }`，
+   只有该会话日志里引用过这个 id 才给读（否则 `ATTACHMENT_NOT_REFERENCED`）。
+
+> 顺带：`ModelSelection` 除了 `provider`/`model` 还有可选的 `reasoningEffort`——
+> `session.models` 的 `models[].reasoning.efforts` 就是给它选的。C 批可以先不做，
+> 但结构上留好位置。
 
 > **打形状的通用招式**：随便传一个空对象过去，`result.error.details.issues` 就是 zod
 > 逐字段列出来的说明书。比翻文档快，而且不会过期。
