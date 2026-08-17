@@ -11,9 +11,19 @@
  */
 import type { DshrClient } from '@dshr/protocol'
 import type { DshrState, SessionId } from '@dshr/state'
-import { Composer, Conversation, Footer, Logo, PendingPrompt, Sidebar } from '@dshr/tui'
-import { Box, useStdout } from 'ink'
-import { useEffect, useReducer, type ReactElement } from 'react'
+import {
+  CommandPalette,
+  Composer,
+  Conversation,
+  Footer,
+  Logo,
+  PendingPrompt,
+  Sidebar,
+  createCommandRegistry,
+  type CommandRegistry,
+} from '@dshr/tui'
+import { Box, useApp, useInput, useStdout } from 'ink'
+import { useEffect, useReducer, useRef, useState, type ReactElement } from 'react'
 
 export interface SessionAppProps {
   readonly state: DshrState
@@ -71,6 +81,39 @@ export function SessionApp({
 }: SessionAppProps): ReactElement {
   const [, bump] = useReducer((n: number) => n + 1, 0)
   useEffect(() => state.subscribe(bump), [state])
+  const { exit } = useApp()
+
+  // ── 命令面板（ctrl+p，opencode 实测键位）─────────────────────────────
+  // 打开时整区接管会话区（ink 没有浮层，docs/opencode-dialogs.md §四第一节），
+  // composer 与底部栏保留。state 镜像进 ref：useInput 回调闭包可能过期。
+  const [paletteOpen, setPaletteOpenState] = useState(false)
+  const paletteOpenRef = useRef(false)
+  const setPaletteOpen = (open: boolean): void => {
+    paletteOpenRef.current = open
+    setPaletteOpenState(open)
+  }
+  const registryRef = useRef<CommandRegistry | null>(null)
+  if (registryRef.current === null) {
+    // 只注册真命令——每条都走现有路径，没有「点了没反应」的条目。
+    const registry = createCommandRegistry()
+    registry.register({
+      name: 'session.interrupt',
+      title: 'Interrupt',
+      desc: 'Cancel the current turn',
+      category: 'Session',
+      bindings: ['esc'],
+      run: () => void state.cancel(sessionId),
+    })
+    registry.register({
+      name: 'app.exit',
+      title: 'Exit the app',
+      category: 'System',
+      bindings: ['ctrl+c'],
+      run: () => exit(),
+    })
+    registryRef.current = registry
+  }
+  const registry = registryRef.current
   const { stdout } = useStdout()
   const columns = stdout !== undefined && stdout.columns > 0 ? stdout.columns : 80
   const rows = stdout !== undefined && stdout.rows > 0 ? stdout.rows : 24
@@ -90,6 +133,18 @@ export function SessionApp({
   // 输入框固定占用：pad 行 + ≥1 输入行 + pad 行 + meta 行 + ╹▀ 行 + 快捷键行。
   const promptRows = 6
   const conversationRows = Math.max(1, rows - promptRows - 1 /* footer */ - 1 /* 保险 */)
+
+  // ctrl+p 开面板。审批/提问在场时不开：PendingPrompt 的 useInput 没有
+  // acceptsKey 机制，面板开了它会跟面板抢键（输入被两个处理器同时消费，踩过）。
+  useInput((input, key) => {
+    if (paletteOpenRef.current) return
+    if (key.ctrl && input === 'p' && pending === undefined) setPaletteOpen(true)
+  })
+  // 面板开着时来了审批/提问：让路，关掉面板。
+  const pendingKind = pending?.kind
+  useEffect(() => {
+    if (pendingKind !== undefined && paletteOpenRef.current) setPaletteOpen(false)
+  }, [pendingKind])
 
   const promptElement =
     pending !== undefined ? (
@@ -116,6 +171,8 @@ export function SessionApp({
         width={contentWidth}
         working={summary?.status === 'working'}
         onInterrupt={() => void state.cancel(sessionId)}
+        // 面板开着时 composer 不能吃键（按键到达那一刻现问，读 ref 不读 state）。
+        acceptsKey={() => !paletteOpenRef.current}
       />
     )
 
@@ -123,7 +180,19 @@ export function SessionApp({
     <Box flexDirection="column" flexGrow={1} minHeight={rows}>
       <Box flexDirection="row" flexGrow={1} minHeight={0}>
         <Box flexDirection="column" flexGrow={1} paddingLeft={2} paddingRight={2}>
-          {empty ? (
+          {paletteOpen ? (
+            <>
+              {/* 对话框整区接管会话区，内部布局逐项照搬 opencode。 */}
+              <CommandPalette
+                registry={registry}
+                onClose={() => setPaletteOpen(false)}
+                maxHeight={Math.max(5, conversationRows - 6)}
+              />
+              <Box flexGrow={1} />
+              <Box height={1} flexShrink={0} />
+              {promptElement}
+            </>
+          ) : empty ? (
             // 空会话 = 上游 home 路由：logo + 输入框作为一个整体垂直居中，
             // 输入框不钉底（有对话后才钉底）。
             <Box flexGrow={1} flexDirection="column" justifyContent="center" alignItems="center">
