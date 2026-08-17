@@ -46,7 +46,11 @@ Three things fall out of building it this way:
 
 ## Status
 
-**117 tests. The whole stack runs against a real dsh host, inside a real herdr pane.**
+**194 tests. The whole stack runs against a real dsh host, inside a real herdr pane.**
+
+dshr calls **26 of dsh's 52 RPC methods**, handles **all 19** downlink frame types, and folds
+**18 of 39** session event kinds. What's missing and why — including three things that
+*can't* be reached on this deployment — is [`docs/coverage.md`](docs/coverage.md).
 
 | | | |
 |---|---|---|
@@ -85,6 +89,40 @@ dshr server                # just the host, no UI
 Usually you won't type any of these: with `default_shell = "dshr"`, opening a herdr pane is
 opening a session. Closing the pane only detaches — dsh persists every session, so
 `dshr --resume` picks it back up.
+
+### Keys
+
+Copied from opencode, verified against a real opencode 1.18.18 capture
+([`docs/opencode-dialogs.md`](docs/opencode-dialogs.md)):
+
+| key | what |
+|---|---|
+| `enter` | send · `shift+enter` newline |
+| `ctrl+p` | **command palette** — everything below is reachable from here |
+| `tab` | cycle the agent preset in place (`standard` → `code` → `minimal` → `cordis`) |
+| `esc` | interrupt the current turn · close a dialog |
+| `ctrl+c` | quit |
+
+Inside the session-list dialog, `ctrl+r` renames.
+
+### What the palette can do
+
+Switch model · switch session · switch agent preset · fork · rename ·
+open/inspect settings · see which credentials are configured · browse providers and the
+host model catalog · create/pause/resume/complete/clear a goal.
+
+**Everything in the palette does something.** Commands that can't work right now are hidden
+or answer with a readable reason (`fork` needs a completed turn; the host locks the agent
+preset after the first turn) — there are no decorative entries.
+
+### What the transcript now shows
+
+Beyond the conversation itself: retries (`↳ Retrying (attempt 1/2) · RATE_LIMIT`, in red —
+before this, a retrying gateway looked like a freeze), todo lists, slash-command runs,
+subagent tasks, context compaction, and queued messages.
+
+Coverage of dsh's surface — what's wired, what isn't, and why — is tracked in
+[`docs/coverage.md`](docs/coverage.md); re-count it with `sh tools/coverage.sh`.
 
 ## Verifying it
 
