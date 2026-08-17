@@ -59,8 +59,21 @@ workspace 列表/创建/重命名、上下文 token、往 herdr 报 idle/working
 | `plan/mode` | 不画 | composer 的模式标签（opencode 的 `Build` ↔ `Plan` 就是这个位置） |
 | `command/run` `command/done` | 不画 | 斜杠命令的执行痕迹，走工具行的形状 |
 | `subagent/descriptor` | 不画 | `✓ General Task — <描述>` + `↳` 子行；未完图标 `│`，完成 `✓` |
-| `hook/invoked` `hook/result` | 不画 | 工具行形状 |
-| `goal/change` `schedule/change` | 不画 | 通知行 |
+| `goal/change` | 不画 | 通知行（E 批） |
+| ~~`hook/invoked` `hook/result`~~ | **本部署上不可能触发**，见下 | — |
+| ~~`schedule/change`~~ | 同上 | — |
+
+> **`hook/*` 与 `schedule/change` 不实现，理由是实测的**：
+> `settings.describe` 的返回（14393 字符）里 **`hook` / `schedule` 一个字都没出现**——
+> 这台部署没装那两个插件，事件不可能到达。它们出现在 `known-event-types.js` 里，
+> 只是给**未安装的插件**预留的名字。
+>
+> 盲画一个永远不会出现、也无法验证的行，等于往代码里放一段没人能证伪的东西。
+> 将来要做，先按这个顺序验：
+> 1. `settings.describe` 里能搜到 `hook` → 说明插件装上了
+> 2. 用**独立的 `DSH_HOME`** 起一台自己的 host（别动用户的 `~/.dsh`），配一个 hook
+> 3. `node tools/probe-gaps.mjs` 打出真实载荷，补进 `gap-shapes.md`
+> 4. 再写渲染
 | `session/queue` | **帧进了 switch 就被 `break` 丢掉**，state 根本没存 | 反色徽章 ` QUEUED `，底色用 agent 色 |
 | `session/jobs` | 同上，被丢掉——**后台任务在界面上完全不存在** | 见下 |
 
