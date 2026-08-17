@@ -2,6 +2,12 @@ import { useRef, useState } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import { theme } from '../theme.js'
 
+/** composer 上挂着的一张待发图（字节在 state 层的 ImageDraft 里，这里只拿展示要的）。 */
+export interface ComposerAttachment {
+  readonly name: string
+  readonly bytes: number
+}
+
 export interface ComposerProps {
   onSubmit: (text: string) => void
   disabled?: boolean
@@ -35,6 +41,12 @@ export interface ComposerProps {
    * 不传则只看 `disabled`。
    */
   acceptsKey?: () => boolean
+  /** 已挂上的待发图片；有就画在输入框上方，并能用 ctrl+u 一次清空。 */
+  attachments?: readonly ComposerAttachment[]
+  /** 清空全部附件（ctrl+u，只在有附件时收这个键）。 */
+  onClearAttachments?: () => void
+  /** 一条要用户看见的信息（如附件超限被拒的理由），画在输入框上方，error 色。 */
+  notice?: string
 }
 
 export type ComposerHint = 'command' | 'reference' | null
@@ -130,6 +142,9 @@ export function Composer({
   working = false,
   onInterrupt,
   acceptsKey,
+  attachments = [],
+  onClearAttachments,
+  notice,
 }: ComposerProps) {
   const { stdout } = useStdout()
   const liveColumns = stdout !== undefined && stdout.columns > 0 ? stdout.columns : 0
@@ -164,6 +179,11 @@ export function Composer({
         return
       }
       if (key.tab) return
+      // ctrl+u：清空待发附件（只在有附件时收；没附件时它什么也不是，别吃）。
+      if (key.ctrl && input === 'u') {
+        if (attachments.length > 0) onClearAttachments?.()
+        return
+      }
       if (key.return) {
         if (key.shift) {
           apply(insertText(current, at, '\n'))
@@ -240,6 +260,22 @@ export function Composer({
           <Text color={theme.textMuted}> (no candidates wired yet)</Text>
         </Box>
       )}
+      {notice !== undefined ? (
+        <Box paddingLeft={1}>
+          <Text color={theme.error}>{notice}</Text>
+        </Box>
+      ) : null}
+      {attachments.length > 0 ? (
+        <Box paddingLeft={1}>
+          <Text>
+            <Text color={theme.secondary}>📎 {attachments.length} image{attachments.length > 1 ? 's' : ''}</Text>
+            <Text color={theme.textMuted}>
+              {' '}{attachments.map((a) => a.name).join(', ')} · ctrl+u{' '}
+            </Text>
+            <Text color={theme.text}>clear</Text>
+          </Text>
+        </Box>
+      ) : null}
       {/* 顶 padding 行 */}
       <Text>
         {bar}

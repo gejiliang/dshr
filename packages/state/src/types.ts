@@ -11,6 +11,7 @@ import type {
   RpcId,
   Unsubscribe,
 } from '@dshr/protocol'
+import type { ImageDraft } from './images.js'
 
 export type { Unsubscribe }
 
@@ -59,6 +60,8 @@ export interface SessionSummary {
   error?: string
   /** `session/queue` 帧的排队消息快照（placement === 'queued'）；空时不设。 */
   queue?: readonly QueuedMessage[]
+  /** `session/jobs` 帧的后台任务整份快照；空时不设。dshr 只展示，杀任务是模型的 `job_kill` 工具。 */
+  jobs?: readonly JobItem[]
   /**
    * 会话事件流里见过 `plan/mode`。它的载荷形状**还没打到**（docs/gap-shapes.md §七），
    * 所以这里只有「发生过」这一个比特，**不知道方向**（是进是出 plan 模式不得而知）。
@@ -84,6 +87,31 @@ export interface TodoEntry {
 export interface QueuedMessage {
   id: string
   text: string
+}
+
+/**
+ * `session/jobs` 帧里的一条后台任务（上游 `JobView` 的结构性拷贝，
+ * `id` 在上游是 branded `JobId`——与 SessionId 一样按结构取用，不重新 brand）。
+ * 形状出处：docs/gap-shapes.md §十。
+ */
+export interface JobItem {
+  id: string
+  /** producer 种类（`bash` / `subagent` / …），上游刻意是裸 string——插件可扩展。 */
+  kind: string
+  label: string
+  status: 'running' | 'stopping' | 'completed' | 'killed' | 'failed'
+  detail?: string
+  /** epoch ms。 */
+  startedAt: number
+  finishedAt?: number
+}
+
+/** `skill.list` 返回的一行（只读目录；调用技能就是 composer 里 `/name`，没有专门 RPC）。 */
+export interface SkillEntry {
+  readonly name: string
+  readonly description: string
+  /** false = 只给人用的技能（`disable-model-invocation`）。 */
+  readonly modelInvocable: boolean
 }
 
 /** 会话视图里的一项。工具调用**折叠成一行**，展开才看详情。 */
@@ -192,7 +220,16 @@ export interface DshrState {
 
   createWorkspace(path: string, title?: string): Promise<WorkspaceId>
   createSession(input: { cwd: string; workspaceId?: WorkspaceId; agentPreset?: string }): Promise<SessionId>
-  prompt(sessionId: SessionId, text: string): Promise<void>
+  /**
+   * 发一轮提示。`images` 是本地读好的附件（`images.ts` 的 `readImageDraft`），
+   * 字节直接随 `session.prompt` 的 content 发给 host——**没有单独的上传 RPC**，
+   * 限额自查（`checkImageLimits`）是调用方的责任，要在调这个之前做。
+   */
+  prompt(sessionId: SessionId, text: string, images?: readonly ImageDraft[]): Promise<void>
+  /** 从队列里删一条排队消息（`session.updateQueue` 的 `remove`；edit/steer 形状没打到，不做）。 */
+  removeQueuedMessage(sessionId: SessionId, itemId: string): Promise<void>
+  /** 该会话项目下的用户可调技能目录（只读）。 */
+  listSkills(sessionId: SessionId): Promise<SkillEntry[]>
   cancel(sessionId: SessionId): Promise<void>
 
   answerApproval(sessionId: SessionId, outcome: ApprovalOutcome): Promise<void>

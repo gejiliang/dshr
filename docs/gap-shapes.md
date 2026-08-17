@@ -241,6 +241,17 @@ opencode 的 `tab` 就地循环（`Build` ↔ `Plan`）在 dshr 这边就是在�
    `ATTACHMENT_NOT_REFERENCED`（"Image is not referenced by this session"）。
    上传走 `session.prompt`，见下。
 
+D 批实测又踩到的三个（2026-08-17，`tools/verify-batch-d.mjs`）：
+
+4. **bash 工具的 `description` 是必填参数。** mock 发 `tool_call_success` 只带
+   `command` + `run_in_background` 时，host 回 `ToolArgsError: missing required property "description"`——
+   连 `session/jobs` 帧都不会有（任务根本没起来）。
+5. **模型不声明 `input: [text, image]` 模态，带图的 `session.prompt` 在准入时就被拒**：
+   `attachment-error: Model "…" does not support image input.`（`settings.yaml` 的 models 条目里加 `input`）。
+6. **标题生成会消费 mock 的行为序列**：第一轮结束后 `session-title` 插件自己发一次 LLM 请求。
+   用 `--sequence` 编排多轮行为时要把这一格算进去（或像 verify-batch-d 一样用
+   `mock.requests.length` 等它落定），否则 stall/success 落不到你以为的轮次上。
+
 ### 图片怎么进会话（D 批用）
 
 `@deepseek-ai/dsh-host-apiproxy/api/sessions` 里的 `PromptContentPart`：

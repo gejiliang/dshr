@@ -21,16 +21,19 @@ import type {
   Unsubscribe,
 } from '@dshr/protocol'
 import { Conversation, type ProjectionsBlock } from './conversation.js'
+import type { ImageDraft } from './images.js'
 import type {
   AgentStatus,
   ApprovalOutcome,
   ConversationView,
   CreateStateOptions,
   DshrState,
+  JobItem,
   PendingInteraction,
   QueuedMessage,
   SessionId,
   SessionSummary,
+  SkillEntry,
   WorkspaceId,
   WorkspaceSummary,
 } from './types.js'
@@ -68,6 +71,8 @@ interface SessionRecord {
   projections: Map<string, { value: unknown; seq: number }>
   /** `session/queue` 的最近一份快照（只留 placement === 'queued' 的）。 */
   queue: QueuedMessage[]
+  /** `session/jobs` 的最近一份整份快照。 */
+  jobs: JobItem[]
   /** 会话事件流里见过 `plan/mode`（形状未知，只有这一个比特）。 */
   planModeSeen: boolean
 }
@@ -189,13 +194,40 @@ class DshrStateImpl implements DshrState {
     return res.value.sessionId
   }
 
-  async prompt(sessionId: SessionId, text: string): Promise<void> {
+  async prompt(sessionId: SessionId, text: string, images: readonly ImageDraft[] = []): Promise<void> {
+    // 图片没有单独的上传 RPC：字节随 content 一起发，host 收下后自己转成持久引用
+    // （docs/gap-shapes.md §八）。限额自查在调用方（images.ts 的 checkImageLimits）。
+    const content: RequestPayload<'session.prompt'>['content'] = [{ type: 'text', text }]
+    for (const image of images) {
+      content.push({ type: 'image', mediaType: image.mediaType, data: image.data, name: image.name })
+    }
     const res = await this.client.call('session.prompt', {
       sessionId,
       mode: 'queue',
-      content: [{ type: 'text', text }],
+      content,
     })
     if (!res.ok) throw rpcFailure('session.prompt', res.error)
+  }
+
+  async removeQueuedMessage(sessionId: SessionId, itemId: string): Promise<void> {
+    // `session.updateQueue` 的 action 是判别联合 edit/remove/steer（zod 报错逼出来的，
+    // docs/gap-shapes.md §八）；edit 的其余字段还没打到，这里只做 remove。
+    const res = await this.client.call('session.updateQueue', {
+      sessionId,
+      itemId: itemId as RequestPayload<'session.updateQueue'>['itemId'],
+      action: { kind: 'remove' },
+    })
+    if (!res.ok) throw rpcFailure('session.updateQueue', res.error)
+  }
+
+  async listSkills(sessionId: SessionId): Promise<SkillEntry[]> {
+    const res = await this.client.call('skill.list', { sessionId })
+    if (!res.ok) throw rpcFailure('skill.list', res.error)
+    return res.value.skills.map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      modelInvocable: skill.modelInvocable,
+    }))
   }
 
   async cancel(sessionId: SessionId): Promise<void> {
@@ -433,8 +465,22 @@ class DshrStateImpl implements DshrState {
         this.refreshSummary(record)
         break
       }
+      case 'session/jobs': {
+        const record = this.ensureRecord(frame.sessionId)
+        // 与 queue 同一条纪律：整份快照收敛，host 每次推的是全量视图。
+        record.jobs = frame.jobs.map((job) => ({
+          id: job.id,
+          kind: job.kind,
+          label: job.label,
+          status: job.status,
+          ...(job.detail !== undefined ? { detail: job.detail } : {}),
+          startedAt: job.startedAt,
+          ...(job.finishedAt !== undefined ? { finishedAt: job.finishedAt } : {}),
+        }))
+        this.refreshSummary(record)
+        break
+      }
       case 'session/subscribed':
-      case 'session/jobs':
       case 'stream/error':
         break
     }
@@ -452,6 +498,7 @@ class DshrStateImpl implements DshrState {
         pending: new Map(),
         projections: new Map(),
         queue: [],
+        jobs: [],
         planModeSeen: false,
       }
       this.records.set(sessionId, record)
@@ -509,6 +556,7 @@ class DshrStateImpl implements DshrState {
       ...(pending !== undefined ? { pending } : {}),
       ...(record.error !== undefined ? { error: record.error } : {}),
       ...(record.queue.length > 0 ? { queue: record.queue } : {}),
+      ...(record.jobs.length > 0 ? { jobs: record.jobs } : {}),
       ...(record.planModeSeen ? { planModeSeen: true as const } : {}),
     }
     this.summaries.set(record.sessionId, summary)

@@ -13,6 +13,11 @@ export interface DialogSelectOption {
   readonly footer?: string
   /** 当前项，gutter 画 ●。 */
   readonly current?: boolean
+  /**
+   * 标题的非选中色：`default` = theme.text（缺省）、`muted` = theme.textMuted、
+   * `error` = theme.error。选中行总是反色（theme.primary 底 + background 字），不看 tone。
+   */
+  readonly tone?: 'default' | 'muted' | 'error'
   readonly value: string
 }
 
@@ -223,7 +228,14 @@ export function DialogSelect({
               )
             }
             const active = row.index === selected
-            const fg = active ? theme.background : theme.text
+            const tone = row.option.tone ?? 'default'
+            const fg = active
+              ? theme.background
+              : tone === 'error'
+                ? theme.error
+                : tone === 'muted'
+                  ? theme.textMuted
+                  : theme.text
             return (
               // 条目：当前项有 gutter 时 paddingLeft=1（放 ●），否则 3；
               // paddingRight=3；选中行整行底色 theme.primary；标题截断到 61 列。

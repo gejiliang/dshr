@@ -10,11 +10,22 @@
  * （width 42，pane 窄于 100 列整列折叠），底部一行 cwd + 状态 chip。
  */
 import type { DshrClient } from '@dshr/protocol'
-import type { DshrState, SessionId } from '@dshr/state'
+import {
+  checkImageLimits,
+  imageLimitsFromProjection,
+  readImageDraft,
+  type DshrState,
+  type ImageDraft,
+  type JobItem,
+  type SessionId,
+  type SkillEntry,
+} from '@dshr/state'
 import {
   CommandPalette,
   Composer,
   Conversation,
+  DialogPrompt,
+  DialogSelect,
   Footer,
   Logo,
   PendingPrompt,
@@ -22,6 +33,7 @@ import {
   Sidebar,
   createCommandRegistry,
   type CommandRegistry,
+  type DialogSelectOption,
 } from '@dshr/tui'
 import { Box, useApp, useInput, useStdout } from 'ink'
 import { useEffect, useReducer, useRef, useState, type ReactElement } from 'react'
@@ -72,6 +84,27 @@ function abbreviateHome(path: string): string {
   return path
 }
 
+/** 会话区被哪个对话框接管（ink 没有浮层，对话框整区接管，docs/opencode-dialogs.md §四）。 */
+type Overlay = 'palette' | 'jobs' | 'skills' | 'queue' | 'attach'
+
+/** `skill.list` 的拉取态：对话框先开，数据后到。 */
+type SkillsData = 'loading' | readonly SkillEntry[] | { readonly error: string }
+
+/** 后台任务列表里的一条：label 标题、kind+耗时 muted 说明、status 决定 tone。 */
+function jobOption(job: JobItem, now: number): DialogSelectOption {
+  const end = job.finishedAt ?? now
+  const seconds = Math.max(0, (end - job.startedAt) / 1000)
+  const duration = seconds >= 60 ? `${Math.floor(seconds / 60)}m${Math.round(seconds % 60)}s` : `${seconds.toFixed(1)}s`
+  const label = `${job.kind} · ${duration}${job.detail !== undefined ? ` · ${job.detail}` : ''}`
+  const tone =
+    job.status === 'failed' || job.status === 'killed'
+      ? ('error' as const)
+      : job.status === 'completed'
+        ? ('muted' as const)
+        : ('default' as const)
+  return { title: job.label, label, tone, value: job.id }
+}
+
 export function SessionApp({
   state,
   client,
@@ -84,15 +117,25 @@ export function SessionApp({
   useEffect(() => state.subscribe(bump), [state])
   const { exit } = useApp()
 
-  // ── 命令面板（ctrl+p，opencode 实测键位）─────────────────────────────
+  // ── 覆盖层（ctrl+p 面板 / jobs / skills / 队列 / 挂图）─────────────────
   // 打开时整区接管会话区（ink 没有浮层，docs/opencode-dialogs.md §四第一节），
   // composer 与底部栏保留。state 镜像进 ref：useInput 回调闭包可能过期。
-  const [paletteOpen, setPaletteOpenState] = useState(false)
-  const paletteOpenRef = useRef(false)
-  const setPaletteOpen = (open: boolean): void => {
-    paletteOpenRef.current = open
-    setPaletteOpenState(open)
+  const [overlay, setOverlayState] = useState<Overlay | null>(null)
+  const overlayRef = useRef<Overlay | null>(null)
+  const setOverlay = (next: Overlay | null): void => {
+    overlayRef.current = next
+    setOverlayState(next)
   }
+  // 待发附件与提示条（notice）：提交前自查不过就把理由摆在这里，不发出去。
+  const [attachments, setAttachmentsState] = useState<readonly ImageDraft[]>([])
+  const attachmentsRef = useRef<readonly ImageDraft[]>([])
+  const setAttachments = (next: readonly ImageDraft[]): void => {
+    attachmentsRef.current = next
+    setAttachmentsState(next)
+  }
+  const [notice, setNotice] = useState<string | undefined>(undefined)
+  const [skillsData, setSkillsData] = useState<SkillsData>('loading')
+
   const registryRef = useRef<CommandRegistry | null>(null)
   if (registryRef.current === null) {
     // 只注册真命令——每条都走现有路径，没有「点了没反应」的条目。
@@ -104,6 +147,44 @@ export function SessionApp({
       category: 'Session',
       bindings: ['esc'],
       run: () => void state.cancel(sessionId),
+    })
+    registry.register({
+      name: 'session.jobs',
+      title: 'View background jobs',
+      desc: 'List background jobs of this session',
+      category: 'Session',
+      run: () => setOverlay('jobs'),
+    })
+    registry.register({
+      name: 'session.skills',
+      title: 'View skills',
+      desc: 'List the skills available in this project',
+      category: 'Session',
+      run: () => {
+        setOverlay('skills')
+        setSkillsData('loading')
+        void state
+          .listSkills(sessionId)
+          .then((skills) => setSkillsData(skills))
+          .catch((error: unknown) =>
+            setSkillsData({ error: error instanceof Error ? error.message : String(error) }),
+          )
+      },
+    })
+    registry.register({
+      name: 'session.queue-remove',
+      title: 'Remove queued message',
+      desc: 'Delete a message waiting in the queue',
+      category: 'Session',
+      bindings: ['ctrl+x'],
+      run: () => setOverlay('queue'),
+    })
+    registry.register({
+      name: 'composer.attach',
+      title: 'Attach image',
+      desc: 'Attach a local image file to the next message',
+      category: 'Composer',
+      run: () => setOverlay('attach'),
     })
     registry.register({
       name: 'app.exit',
@@ -124,6 +205,10 @@ export function SessionApp({
   const pending = summary?.pending
   const preset = summary?.agentPreset
   const queue = summary?.queue ?? []
+  const jobs = summary?.jobs ?? []
+  const runningJobs = jobs.filter((job) => job.status === 'running').length
+  const queueLengthRef = useRef(queue.length)
+  queueLengthRef.current = queue.length
   const { tokens, percent } = contextUsage(state, sessionId)
   const cwd = summary?.cwd ?? process.cwd()
   const sidebarVisible = columns >= SIDEBAR_MIN_COLUMNS
@@ -136,17 +221,59 @@ export function SessionApp({
   const promptRows = 6
   const conversationRows = Math.max(1, rows - promptRows - 1 /* footer */ - 1 /* 保险 */)
 
-  // ctrl+p 开面板。审批/提问在场时不开：PendingPrompt 的 useInput 没有
-  // acceptsKey 机制，面板开了它会跟面板抢键（输入被两个处理器同时消费，踩过）。
+  // ctrl+p 开面板、ctrl+x 开队列管理（队列非空才有意义）。审批/提问在场时都不开：
+  // PendingPrompt 的 useInput 没有 acceptsKey 机制，开了它会跟对话框抢键（踩过）。
   useInput((input, key) => {
-    if (paletteOpenRef.current) return
-    if (key.ctrl && input === 'p' && pending === undefined) setPaletteOpen(true)
+    if (overlayRef.current !== null) return
+    if (pending !== undefined) return
+    if (key.ctrl && input === 'p') setOverlay('palette')
+    if (key.ctrl && input === 'x' && queueLengthRef.current > 0) setOverlay('queue')
   })
-  // 面板开着时来了审批/提问：让路，关掉面板。
+  // 对话框开着时来了审批/提问：让路，关掉对话框。
   const pendingKind = pending?.kind
   useEffect(() => {
-    if (pendingKind !== undefined && paletteOpenRef.current) setPaletteOpen(false)
+    if (pendingKind !== undefined && overlayRef.current !== null) setOverlay(null)
   }, [pendingKind])
+
+  // ── 附件：挂图与提交的自查都在这里，host 报错前就该拒掉 ──────────────
+  const currentLimits = () => imageLimitsFromProjection(state.projections(sessionId).get('imageLimits'))
+
+  const onAttachPath = (raw: string): void => {
+    setOverlay(null)
+    void (async () => {
+      try {
+        const draft = await readImageDraft(raw)
+        const limits = currentLimits()
+        if (limits !== undefined) {
+          const problem = checkImageLimits([...attachmentsRef.current, draft], limits)
+          if (problem !== undefined) {
+            setNotice(problem)
+            return
+          }
+        }
+        setAttachments([...attachmentsRef.current, draft])
+        setNotice(undefined)
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : String(error))
+      }
+    })()
+  }
+
+  const submit = (text: string): void => {
+    const images = attachmentsRef.current
+    const limits = currentLimits()
+    // 提交前最后一道自查：限额投影存在就拦，不存在（没装附件服务）才放行让 host 回答。
+    if (images.length > 0 && limits !== undefined) {
+      const problem = checkImageLimits(images, limits)
+      if (problem !== undefined) {
+        setNotice(problem)
+        return
+      }
+    }
+    setNotice(undefined)
+    setAttachments([])
+    void state.prompt(sessionId, text, images)
+  }
 
   const promptElement =
     pending !== undefined ? (
@@ -166,7 +293,7 @@ export function SessionApp({
       />
     ) : (
       <Composer
-        onSubmit={(text) => void state.prompt(sessionId, text)}
+        onSubmit={submit}
         {...(preset !== undefined ? { preset } : {})}
         {...(model !== undefined ? { model } : {})}
         {...(provider !== undefined ? { provider } : {})}
@@ -174,23 +301,81 @@ export function SessionApp({
         width={contentWidth}
         working={summary?.status === 'working'}
         onInterrupt={() => void state.cancel(sessionId)}
-        // 面板开着时 composer 不能吃键（按键到达那一刻现问，读 ref 不读 state）。
-        acceptsKey={() => !paletteOpenRef.current}
+        attachments={attachments.map((draft) => ({ name: draft.name, bytes: draft.bytes }))}
+        onClearAttachments={() => setAttachments([])}
+        {...(notice !== undefined ? { notice } : {})}
+        // 对话框开着时 composer 不能吃键（按键到达那一刻现问，读 ref 不读 state）。
+        acceptsKey={() => overlayRef.current === null}
       />
     )
+
+  const skillsOptions: DialogSelectOption[] =
+    skillsData === 'loading'
+      ? [{ title: 'Loading…', tone: 'muted', value: '__loading' }]
+      : typeof skillsData === 'object' && 'error' in skillsData
+        ? [{ title: skillsData.error, tone: 'error', value: '__error' }]
+        : skillsData.map((skill) => ({
+            title: skill.name,
+            label: skill.description,
+            value: skill.name,
+          }))
+
+  const overlayElement =
+    overlay === 'palette' ? (
+      <CommandPalette
+        registry={registry}
+        onClose={() => setOverlay(null)}
+        maxHeight={Math.max(5, conversationRows - 6)}
+      />
+    ) : overlay === 'jobs' ? (
+      // 只展示——杀后台任务是模型的 `job_kill` 工具，dshr 不造这个 RPC。
+      <DialogSelect
+        title="Background jobs"
+        options={jobs.map((job) => jobOption(job, Date.now()))}
+        onSelect={() => setOverlay(null)}
+        onCancel={() => setOverlay(null)}
+        maxHeight={Math.max(5, conversationRows - 6)}
+      />
+    ) : overlay === 'skills' ? (
+      <DialogSelect
+        title="Skills"
+        options={skillsOptions}
+        onSelect={() => setOverlay(null)}
+        onCancel={() => setOverlay(null)}
+        maxHeight={Math.max(5, conversationRows - 6)}
+      />
+    ) : overlay === 'queue' ? (
+      // 选中即删（session.updateQueue 的 remove），对话框不关：队列是活快照，
+      // 删完能看到它缩；空了就剩 No results found，esc 收工。
+      <DialogSelect
+        title="Remove queued message"
+        options={queue.map((item) => ({ title: item.text.replaceAll('\n', ' '), value: item.id }))}
+        onSelect={(itemId) => {
+          void state.removeQueuedMessage(sessionId, itemId).catch((error: unknown) => {
+            setNotice(error instanceof Error ? error.message : String(error))
+          })
+        }}
+        onCancel={() => setOverlay(null)}
+        maxHeight={Math.max(5, conversationRows - 6)}
+      />
+    ) : overlay === 'attach' ? (
+      <DialogPrompt
+        title="Attach image"
+        hint="Path to a local image file (png / jpeg / webp / gif)"
+        placeholder="/path/to/image.png"
+        onSubmit={onAttachPath}
+        onCancel={() => setOverlay(null)}
+      />
+    ) : null
 
   return (
     <Box flexDirection="column" flexGrow={1} minHeight={rows}>
       <Box flexDirection="row" flexGrow={1} minHeight={0}>
         <Box flexDirection="column" flexGrow={1} paddingLeft={2} paddingRight={2}>
-          {paletteOpen ? (
+          {overlayElement !== null ? (
             <>
               {/* 对话框整区接管会话区，内部布局逐项照搬 opencode。 */}
-              <CommandPalette
-                registry={registry}
-                onClose={() => setPaletteOpen(false)}
-                maxHeight={Math.max(5, conversationRows - 6)}
-              />
+              {overlayElement}
               <Box flexGrow={1} />
               <Box height={1} flexShrink={0} />
               {promptElement}
@@ -241,6 +426,7 @@ export function SessionApp({
               : 'connecting'
         }
         {...(pending?.kind === 'approval' ? { pendingApprovals: 1 } : {})}
+        {...(runningJobs > 0 ? { runningJobs } : {})}
         {...(model !== undefined ? { model } : {})}
       />
     </Box>

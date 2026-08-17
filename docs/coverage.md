@@ -22,7 +22,7 @@
 
 | 面 | 覆盖 | 说明 |
 |---|---|---|
-| RPC 方法 | 9 / 51 | `host.close` 是 dshr 自己 spawn 的 host 对象上的本地方法，**不是 RPC**，不计入 |
+| RPC 方法 | 11 / 51 | `host.close` 是 dshr 自己 spawn 的 host 对象上的本地方法，**不是 RPC**，不计入；`session.jobs`/`session.skills` 等是命令注册表的动词名，不是 RPC，也不计入 |
 | 下行帧 | 19 / 19 | MuxFrame 10 + HostFrame 9，**全接了** |
 | 会话事件 | 8 / 39 | 上游 `known-event-types.js` 是权威清单 |
 
@@ -62,7 +62,7 @@ workspace 列表/创建/重命名、上下文 token、往 herdr 报 idle/working
 | `hook/invoked` `hook/result` | 不画 | 工具行形状 |
 | `goal/change` `schedule/change` | 不画 | 通知行 |
 | `session/queue` | **帧进了 switch 就被 `break` 丢掉**，state 根本没存 | 反色徽章 ` QUEUED `，底色用 agent 色 |
-| `session/jobs` | 同上，被丢掉——**后台任务在界面上完全不存在** | 见下 |
+| `session/jobs` | 同上，被丢掉——**后台任务在界面上完全不存在**（D 批已补：快照 + chip + 列表） | 见下 |
 
 > ⚠️ `session/queue` 与 `session/jobs` 的措辞要准：不是「收到了没画」，
 > 是 `packages/state/src/state.ts` 里这两个 case 直接 `break`，**没有任何存储**。
@@ -96,11 +96,12 @@ workspace 列表/创建/重命名、上下文 token、往 herdr 报 idle/working
 
 ### D 批 —— 输入类
 
-| 方法 | 用途 |
-|---|---|
-| `session.attachment` | 发附件／图片（契约里 `imageLimits` 投影就是给这个用的，提交前拒超限） |
-| `session.updateQueue` | 队列可改（`session/queue` 帧已收，但改不了） |
-| `skill.list` | 技能列表 |
+| 方法 | 用途 | 状态（2026-08-17） |
+|---|---|---|
+| `session.attachment` | 发附件／图片（契约里 `imageLimits` 投影就是给这个用的，提交前拒超限） | ✅ 发送路径完成：附件走 `session.prompt` 的 `content`（没有上传 RPC）；`Attach image` 命令读本地文件→base64→提交前自查 `imageLimits`。读回接口本身没做（没有要它的界面） |
+| `session.updateQueue` | 队列可改（`session/queue` 帧已收，但改不了） | ✅ `remove` 完成（QueueDock 有 `ctrl+x` 可见入口，选中即删）。`edit`/`steer` 的其余字段**没打到**，按纪律不做 |
+| `skill.list` | 技能列表 | ✅ 完成（`View skills` 命令 → DialogSelect，只读） |
+| `session/jobs` | 后台任务（mux 帧，原清单漏了） | ✅ 完成：state 存整份快照，底部栏 running 计数 chip，`View background jobs` 命令列详情。杀任务是模型的 `job_kill` 工具，不造 RPC |
 
 ### E 批 —— 配置类
 

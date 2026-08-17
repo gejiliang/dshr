@@ -21,6 +21,10 @@ export function QueueDock({ items }: { items: readonly QueuedMessage[] }) {
           <Text color={theme.textMuted}> {firstLine(item.text)}</Text>
         </Text>
       ))}
+      {/* 可见的删除入口：ctrl+x 打开队列管理对话框（session.updateQueue remove）。 */}
+      <Text color={theme.textMuted}>
+        {'  '}ctrl+x <Text color={theme.text}>remove</Text> a queued message
+      </Text>
     </>
   )
 }
