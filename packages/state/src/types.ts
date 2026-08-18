@@ -276,6 +276,14 @@ export interface DshrState {
   /** 整体变化通知（列表增删、状态翻转）。会话内部的流式增量走 ConversationView。 */
   subscribe(listener: () => void): Unsubscribe
 
+  /**
+   * 订阅 host 转发的 cordis 事件（`host/remote-event` 帧，allowlist 归
+   * `@deepseek-ai/dsh-api-remotes` 管）。已实测会到的例子：`commands/change`
+   * （斜杠命令表变了，args 恒为空数组）。帧不投影不脱敏，payload 契约是
+   * owner 包自己的 cordis `Events` 声明，所以这里只给 `unknown[]`。
+   */
+  onRemoteEvent(listener: (event: string, args: readonly unknown[]) => void): Unsubscribe
+
   /** 打开（必要时创建 host 侧 agent）一个会话的视图。 */
   conversation(sessionId: SessionId): ConversationView
 

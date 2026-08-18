@@ -429,3 +429,29 @@ interface SettingsNamespaceView {
 
 命令表变化会推 `«host» host/remote-event { event: 'commands/change', args: [] }`，
 收到就重取（实测抓到过）。
+
+### typert 探通的形状（2026-08-18，dsh 0.1.0-rc.6 实测）
+
+拿网关：**不能写 `ctx.typertGateway`**——不在插件级 `inject` 里的服务，cordis 直接抛
+`cannot get property "typertGateway" without inject`（实测，startSurface 一调就炸）。
+而 `inject` 是硬依赖，写上它 profile 少一行整棵树起不来。可选服务走
+`ctx.reflect.get('typertGateway', false)`：没提供返回 `undefined`，退化到
+「只出 dshr 自己的命令」。
+
+    list    ← invoke({ namespace: 'commands', method: 'list',    args: { agentId } })
+    execute ← invoke({ namespace: 'commands', method: 'execute', args: { agentId, line } })
+
+- `agentId` 就是 sessionId（descriptor 里 scope 的 wire 名）。**args 必须逐字精确**：
+  网关 `assertExactArguments` 对多一个键、少一个键都抛 `arguments-invalid`。
+- `invoke` 返回**业务结果本体**，不包 `RemoteResult`：
+  - list → `CommandDescriptor[]`：`{ name, description, input?: { hint } }`；
+    `input` 存在 = 命令要自由文本参数（TUI 里 enter 只补全 `/name `，不执行）。
+    实测 payload：`compact` / `feedback` / `goal` / `permission` / `plan` 五条，后四条带 `input`。
+  - execute → `CommandExecution | undefined`；**业务失败不 throw**，在
+    `result.kind === 'error'` 的 `text` 里。执行后 `command/run` / `command/done`
+    事件照常进会话事件流（会话视图里的 `→ /compact` 行就是这么来的）。
+- 网关层失败（`service-unavailable` / `context-not-found` / …）抛 `TypertGatewayError`，
+  `code` 是 `TypertGatewayErrorCode` 那 16 个之一。
+
+⚠️ 排障钩子：`DSHR_SLASH_DEBUG=<文件>` 时 bundle 把每次 list/run 的结果与报错追加落盘
+（屏幕被 ink 占着，只能往文件写）。

@@ -9,6 +9,7 @@
  */
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
+import type { RemoteSlashCommand, SlashCommandSource } from '@dshr/surface'
 // Type-only import: erased by both tsc and node's type stripping, so tests
 // can load this module straight from src without a build step.
 import type { DshrStartup } from './startup.js'
@@ -70,6 +71,87 @@ export interface SurfaceHandle {
   close(): Promise<void>
 }
 
+/**
+ * `TypertGateway`（`@deepseek-ai/dsh-api-gateway`）的最小结构面。
+ * 不 import 上游包：bundle 对它只作类型级引用（同上面 DshrStartup 的先例）。
+ */
+export interface TypertGatewayLike {
+  invoke(request: {
+    namespace: string
+    method: string
+    args: Readonly<Record<string, unknown>>
+  }): Promise<unknown>
+}
+
+/** `commands/list` 返回值的逐条校验：形状不符的条目丢掉，不让一条坏数据废掉整张表。 */
+function coerceCommandDescriptor(item: unknown): RemoteSlashCommand | undefined {
+  if (typeof item !== 'object' || item === null) return undefined
+  const { name, description, input } = item as {
+    name?: unknown
+    description?: unknown
+    input?: unknown
+  }
+  if (typeof name !== 'string' || name === '') return undefined
+  return {
+    name,
+    ...(typeof description === 'string' && description !== '' ? { description } : {}),
+    // `input`（CommandInputDescriptor）存在 = 命令要自由文本参数，enter 只补全不执行。
+    ...(typeof input === 'object' && input !== null ? { takesInput: true } : {}),
+  }
+}
+
+/**
+ * 真·斜杠命令来源：走 `ctx.typertGateway.invoke` 打 dsh 的 `CommandRuntime`
+ * （`@deepseek-ai/dsh-commands` 的 typert remote service，**不在那 52 个 RPC 里**）。
+ *
+ * namespace / 方法 / 参数形状是 2026-08-18 在 dsh 0.1.0-rc.6 上实测探出来的
+ * （先空 args 打一次，从 `TypertGatewayErrorCode` 的 `arguments-invalid` 报错反推），
+ * 细节记在 docs/gap-shapes.md §十一：
+ *
+ *   list    ← invoke({ namespace: 'commands', method: 'list',    args: { agentId } })
+ *             → CommandDescriptor[]（{ name, description, input?: { hint } }）
+ *   execute ← invoke({ namespace: 'commands', method: 'execute', args: { agentId, line } })
+ *             → CommandExecution | undefined（{ commandId, result: { kind, text? } }）
+ *
+ * 网关层失败（`service-unavailable` / `context-not-found` / …）抛 `TypertGatewayError`，
+ * 直接 reject 出去；业务失败（`result.kind === 'error'`）不 throw，回执文本交给 UI。
+ */
+export function createTypertSlashCommands(gateway: TypertGatewayLike): SlashCommandSource {
+  return {
+    async list(sessionId) {
+      const result: unknown = await gateway.invoke({
+        namespace: 'commands',
+        method: 'list',
+        args: { agentId: sessionId },
+      })
+      if (!Array.isArray(result)) {
+        throw new Error(`commands/list: unexpected result shape (${typeof result})`)
+      }
+      const out: RemoteSlashCommand[] = []
+      for (const item of result as unknown[]) {
+        const descriptor = coerceCommandDescriptor(item)
+        if (descriptor !== undefined) out.push(descriptor)
+      }
+      return out
+    },
+    async run(sessionId, line) {
+      const execution: unknown = await gateway.invoke({
+        namespace: 'commands',
+        method: 'execute',
+        args: { agentId: sessionId, line },
+      })
+      // undefined = 这行没被任何命令认领；成功结果也没有回执
+      // （command/run / command/done 事件已经进会话流）。
+      if (typeof execution !== 'object' || execution === null) return undefined
+      const result = (execution as { result?: unknown }).result
+      if (typeof result !== 'object' || result === null) return undefined
+      const { kind, text } = result as { kind?: unknown; text?: unknown }
+      if (kind === 'error') return typeof text === 'string' ? text : 'command failed'
+      return undefined
+    },
+  }
+}
+
 /** Options handed to a surface at mount time. */
 export interface SurfaceOptions {
   runtime: DshrRuntime
@@ -101,6 +183,51 @@ export async function startSurface(ctx: Context, options: SurfaceOptions): Promi
   const client = createInProcessClient({ api: ctx.apiProxy })
   await client.connect()
 
+  // dsh 的斜杠命令表：`typert-gateway` 行在 base 组合里，正常应该在。
+  // ⚠️ 不能写 `ctx.typertGateway`——它不在插件级 inject 里（inject 是**硬**依赖，
+  // 写上它，profile 少了这行整棵树都起不来），cordis 对未声明的服务访问直接抛
+  // 「cannot get property without inject」。可选服务要走 `ctx.reflect.get(name, false)`：
+  // 没提供就返回 undefined，我们退化到「只出 dshr 自己的命令」。
+  // `--connect` 路不在这里也不注入——typert 没走 `/api`（docs/gap-shapes.md §十一）。
+  const reflect = (ctx as unknown as { reflect?: { get(name: string, strict?: boolean): unknown } }).reflect
+  const typertGateway = reflect?.get('typertGateway', false) as TypertGatewayLike | undefined
+  let slashCommands =
+    typertGateway === undefined || typertGateway === null
+      ? undefined
+      : createTypertSlashCommands(typertGateway)
+  // 探针：DSHR_SLASH_DEBUG=<文件> 时把 list/run 的结果与报错落盘（typert 的形状是探出来的）。
+  const slashDebug = process.env.DSHR_SLASH_DEBUG
+  if (slashCommands !== undefined && slashDebug !== undefined && slashDebug !== '') {
+    const inner = slashCommands
+    const log = (line: string): void => {
+      void import('node:fs').then(({ appendFileSync }) => appendFileSync(slashDebug, `${line}\n`))
+    }
+    slashCommands = {
+      list: (sessionId) =>
+        inner.list(sessionId).then(
+          (list) => {
+            log(`list OK: ${JSON.stringify(list)}`)
+            return list
+          },
+          (error: unknown) => {
+            log(`list FAIL: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`)
+            throw error
+          },
+        ),
+      run: (sessionId, line) =>
+        inner.run(sessionId, line).then(
+          (receipt) => {
+            log(`run(${line}) OK: ${JSON.stringify(receipt)}`)
+            return receipt
+          },
+          (error: unknown) => {
+            log(`run(${line}) FAIL: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`)
+            throw error
+          },
+        ),
+    }
+  }
+
   const description = client.state.status === 'ready' ? client.state.host : undefined
   const { mountSurface } = await import('@dshr/surface')
   const surface = await mountSurface({
@@ -108,6 +235,7 @@ export async function startSurface(ctx: Context, options: SurfaceOptions): Promi
     ...(options.runtime.resume !== undefined ? { resume: options.runtime.resume } : {}),
     ...(description?.model !== undefined ? { model: description.model } : {}),
     ...(description?.provider !== undefined ? { provider: description.provider } : {}),
+    ...(slashCommands !== undefined ? { slashCommands } : {}),
   })
 
   // 界面退出（Ctrl-C / 面板里的 Exit）就该收掉整棵树——一个 TUI surface 的进程

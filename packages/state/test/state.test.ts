@@ -358,3 +358,23 @@ test('createWorkspace 只在新建且标题不同时才 rename', async () => {
 
   await state.dispose()
 })
+
+test('host/remote-event 原样转给 onRemoteEvent 订阅者（commands/change 就是这条路）', async () => {
+  const client = new FakeClient()
+  const state = await readyState(client)
+
+  const seen: { event: string; args: readonly unknown[] }[] = []
+  const unsub = state.onRemoteEvent((event, args) => seen.push({ event, args }))
+
+  client.emitHost({ type: 'host/remote-event', event: 'commands/change', args: [] })
+  assert.deepEqual(seen, [{ event: 'commands/change', args: [] }])
+
+  client.emitHost({ type: 'host/remote-event', event: 'skills/change', args: ['x'] })
+  assert.equal(seen.length, 2, '别的 remote 事件也转发，不过滤——过滤是订阅者的事')
+
+  unsub()
+  client.emitHost({ type: 'host/remote-event', event: 'commands/change', args: [] })
+  assert.equal(seen.length, 2, '退订后不再收')
+
+  await state.dispose()
+})

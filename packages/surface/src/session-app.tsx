@@ -48,9 +48,11 @@ import {
   theme,
   type CommandRegistry,
   type DialogSelectOption,
+  type SlashCommandEntry,
 } from '@dshr/tui'
 import { Box, Text, useApp, useInput, useStdout } from 'ink'
 import { useCallback, useEffect, useReducer, useRef, useState, type ReactElement } from 'react'
+import type { RemoteSlashCommand, SlashCommandSource } from './slash-commands.js'
 
 export interface SessionAppProps {
   readonly state: DshrState
@@ -63,6 +65,11 @@ export interface SessionAppProps {
   readonly version?: string
   /** 切会话/分叉之后通知外层（herdr 上报要跟着换 sessionId）。 */
   readonly onSessionChange?: (sessionId: SessionId) => void
+  /**
+   * dsh 斜杠命令表的注入来源（插件路走 typert；`--connect` 路不注入，
+   * 此时 `/` 只出 dshr 自己的命令——已决策的取舍，见 slash-commands.ts）。
+   */
+  readonly slashCommands?: SlashCommandSource
 }
 
 /** 右侧信息列的折叠阈值：herdr 的 pane 经常只有 60 列。 */
@@ -233,6 +240,7 @@ export function SessionApp({
   provider: hostProvider,
   version,
   onSessionChange,
+  slashCommands: slashSource,
 }: SessionAppProps): ReactElement {
   const [, bump] = useReducer((n: number) => n + 1, 0)
   useEffect(() => state.subscribe(bump), [state])
@@ -543,6 +551,71 @@ export function SessionApp({
       run: () => void verb('clear')(),
     })
   }, [state, activeSessionId, registry, goalId, goalPhase])
+
+  // ── 斜杠命令：两个来源合并成一个列表 ─────────────────────────
+  // `/` 是客户端的活（docs/gap-shapes.md §十一）：`session.prompt` 发 `/help`
+  // 只是当普通文本塞给模型（实测，事件流里没有 command/run）。dshr 自己的命令
+  // 两条路都有；dsh 的命令表来自注入的来源（没有来源就只显示自己的，不做占位条目）。
+  const [remoteSlash, setRemoteSlash] = useState<readonly RemoteSlashCommand[]>([])
+  const slashFetchRef = useRef(0)
+  const refetchSlash = useCallback((): void => {
+    if (slashSource === undefined) return
+    const token = ++slashFetchRef.current
+    void slashSource.list(activeRef.current).then(
+      (list) => {
+        if (token === slashFetchRef.current) setRemoteSlash(list)
+      },
+      () => {
+        // 拿不到就只显示 dshr 自己的——不放假按钮（章程）。
+        if (token === slashFetchRef.current) setRemoteSlash([])
+      },
+    )
+  }, [slashSource])
+  // 初次 + 切会话之后各取一次；`commands/change` 帧（实测抓到过）到了再重取。
+  // 别每次打开都无脑重取，也别一次取完再不更新。
+  useEffect(() => refetchSlash(), [refetchSlash, activeSessionId])
+  useEffect(
+    () =>
+      state.onRemoteEvent((event) => {
+        if (event === 'commands/change') refetchSlash()
+      }),
+    [state, refetchSlash],
+  )
+
+  // 合并列表（每次渲染现算：registry 的 hidden 会跟 goal 相位变，remoteSlash 是 state）。
+  const slashEntries: readonly SlashCommandEntry[] = [
+    ...registry.list().map((command) => ({
+      key: `dshr:${command.name}`,
+      name: command.name,
+      label: command.title,
+      source: 'dshr' as const,
+    })),
+    ...remoteSlash.map((command) => ({
+      key: `dsh:${command.name}`,
+      name: command.name,
+      ...(command.description !== undefined ? { label: command.description } : {}),
+      source: 'dsh' as const,
+      ...(command.takesInput === true ? { takesInput: true } : {}),
+    })),
+  ]
+  const slashEntriesRef = useRef(slashEntries)
+  slashEntriesRef.current = slashEntries
+
+  const runSlashEntry = (entry: SlashCommandEntry, line: string): void => {
+    if (entry.source === 'dshr') {
+      registry.dispatch(entry.name)
+      return
+    }
+    if (slashSource === undefined) return
+    const id = activeRef.current
+    void slashSource.run(id, line).then(
+      (receipt) => {
+        // 业务失败（CommandExecution.result.kind === 'error'）的回执进会话 notice 行。
+        if (receipt !== undefined) notify(state, id, receipt)
+      },
+      (error: unknown) => notify(state, id, `/${entry.name} failed: ${errorText(error)}`),
+    )
+  }
   const { stdout } = useStdout()
   const columns = stdout !== undefined && stdout.columns > 0 ? stdout.columns : 80
   const rows = stdout !== undefined && stdout.rows > 0 ? stdout.rows : 24
@@ -621,6 +694,17 @@ export function SessionApp({
   }
 
   const submit = (text: string): void => {
+    // `/` 开头先走命令路由：`/` 是客户端的活（docs/gap-shapes.md §十一），
+    // 原样发给 host 只会被当成普通文本塞给模型（实测）。
+    // 未匹配到任何命令的 `/...` 保持原样发给模型——上游对陌生斜杠行也是如此。
+    const slashMatch = /^\/(\S+)/.exec(text)
+    if (slashMatch !== null) {
+      const entry = slashEntriesRef.current.find((e) => e.name === slashMatch[1])
+      if (entry !== undefined) {
+        runSlashEntry(entry, text)
+        return
+      }
+    }
     const images = attachmentsRef.current
     const limits = currentLimits()
     // 提交前最后一道自查：限额投影存在就拦，不存在（没装附件服务）才放行让 host 回答。
@@ -674,6 +758,8 @@ export function SessionApp({
         attachments={attachments.map((draft) => ({ name: draft.name, bytes: draft.bytes }))}
         onClearAttachments={() => setAttachments([])}
         {...(attachNotice !== undefined ? { notice: attachNotice } : {})}
+        slashCommands={slashEntries}
+        onSlashCommand={(entry) => runSlashEntry(entry, `/${entry.name}`)}
         // 对话框开着时 composer 不能吃键（按键到达那一刻现问，读 ref 不读 state）。
         acceptsKey={() => dialogRef.current === null}
       />
