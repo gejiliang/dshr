@@ -349,3 +349,83 @@ dsh 自带 `job_list` / `job_kill` / `job_output` 三个工具——后台任务
 渲染建议：底部栏一个计数 chip（有 running 的时候才画），命令面板一条
 `View background jobs` 开 `DialogSelect` 列出来（`label` 作标题、`kind`+耗时作 muted 说明、
 `status` 决定颜色）。**`job_kill` 是模型的工具，不是 RPC——dshr 这层只做展示，不要造杀任务的 RPC。**
+
+## 十一、设置的写侧与 schema（2026-08-18 实测）
+
+> 起因是一次真实的设计错误：`Open settings` 走 `settings.openDocument`，
+> 它在**宿主机的桌面**上弹一个文本编辑器。dshr 是终端工具，常常是从别的机器
+> SSH 过来用的——**编辑器弹在你看不见的那台机器上，人完全不知道发生了什么**。
+> 上游给 `openDocument` 是为本机跑 web UI 的形态设的，照搬到终端 surface 是错的。
+> 结论：**设置必须能在 TUI 里改完**。
+
+### 写侧三个方法（`@deepseek-ai/dsh-host-apiproxy/api/settings`）
+
+```ts
+update  ({ ns, patch: object,             expectedRevision? }) → SettingsNamespaceView
+replace ({ ns, section: object,           expectedRevision? }) → SettingsNamespaceView
+mutate  ({ ns, ops: SettingsPathOpView[], expectedRevision? }) → SettingsNamespaceView
+
+type SettingsPathOpView =
+  | { op: 'set';   path: string[]; value: unknown }
+  | { op: 'unset'; path: string[] }
+```
+
+**表单要用 `mutate`**：它是按**字段路径**改的，一次编辑 = 一个 `set` op，
+`expectedRevision` 做 CAS，返回值直接带回新的 `revision`——不用再 describe 一次。
+`update`（合并 patch）与 `replace`（整段替换）粒度太粗，改一个字段会把并发的别处改动盖掉。
+
+### 读侧一个命名空间长这样
+
+```ts
+interface SettingsNamespaceView {
+  ns: string
+  schema: unknown          // schemastery 序列化：{ uid, refs: { <id>: { type, meta, dict?, inner? } } }
+  value: unknown           // **已脱敏**：role 为 secret 的字段不下线
+  base?: unknown; user?: unknown
+  applies: 'live' | 'restart'
+  secrets: { path: string[]; set: boolean }[]
+  revision: number         // 写回时的 CAS
+}
+```
+
+### schema 的全部词汇（11 个命名空间统计出来的，不是猜的）
+
+| `type` | 出现次数 | TUI 控件 |
+|---|---|---|
+| `const` | 57 | 与 `union` 配对出现——**枚举是主导模式** |
+| `union` | 18 | union of const → 选择列表；含非 const 分支时退回文本 |
+| `number` | 32 | 数字输入，`meta.min` / `max` / `step` 做校验 |
+| `string` | 25 | 文本输入 |
+| `object` | 23 | 分组，可下钻 |
+| `array` | 6 | `{ inner: <refId> }`，元素同构 |
+| `dict` | 4 | 键→值映射（provider 名这类） |
+| `boolean` | 1 | 开关 |
+
+`meta` 只有六个键：`default` / `required` / `min` / `max` / `step` / `role`。
+`role` 只有两种：
+
+- **`secret`**（1 处）：值**不下线**，`secrets[]` 只告诉你 `set: true|false`。
+  TUI 里显示「已配置 / 未配置」，**不要显示值，也不要提供明文输入**。
+- **`credential-ref`**（3 处）：值是**环境变量名**（如 `MOCK_API_KEY`），不是密钥本身。
+  这个可以正常当文本编辑——它本来就该是明文。
+
+### 斜杠命令：客户端的活，不是发给模型
+
+实测：`session.prompt` 发 `/help` **只是当普通文本发给了模型**，事件流里没有 `command/run`。
+上游 web patch 的注释说明了分工：
+
+> *"Input triggers: the `/` | `@` pipeline (ui-input-trigger), the command surface over it
+> (ui-commands), and the two reference sources (ui-skill / ui-subagent)."*
+
+`/` 与 `@` 都在**客户端**实现；`@` 的引用来源是 skills 与 subagents。
+
+命令表怎么拿：`CommandRuntime`（`@deepseek-ai/dsh-commands`）是 **typert remote service**，
+**不在那 52 个 RPC 里**。两条路：
+
+- **插件形态（默认）**：`ctx.typertGateway.invoke({ namespace, method, args })` 一个通用入口，
+  `typert-gateway` 行本来就在 base 组合里。**进程内直接可用**，跟 `ctx.commands` 一样。
+- **`--connect` 形态**：typert 没走 `/api`，客户端要自己实现那套协议——暂不做，
+  这条路上 `/` 只出 dshr 自己的命令。
+
+命令表变化会推 `«host» host/remote-event { event: 'commands/change', args: [] }`，
+收到就重取（实测抓到过）。
