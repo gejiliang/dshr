@@ -1,7 +1,8 @@
 /**
  * E 批（设置 / 凭证 / provider / 目标）的 state 层验收：
  * 全部用 FakeClient 打桩，**不连真 host**——settings/credentials 的写方法
- * 会动用户真实的 ~/.dsh，这一层只包只读方法 + goal 动词，测试也只碰这些。
+ * 会动用户真实的 ~/.dsh，测试只验载荷与错误透传（写方法的测试在
+ * settings-editor.test.ts；真实写路径的验收在隔离 DSH_HOME 上做）。
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'

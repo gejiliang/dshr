@@ -26,6 +26,10 @@ export { CommandPalette } from './components/CommandPalette.js'
 export type { CommandPaletteProps } from './components/CommandPalette.js'
 export { LazyDialogSelect } from './components/LazyDialogSelect.js'
 export type { LazyDialogSelectProps } from './components/LazyDialogSelect.js'
+export { SettingsEditor } from './components/SettingsEditor.js'
+export type { SettingsEditorProps } from './components/SettingsEditor.js'
+export { CredentialsDialog } from './components/CredentialsDialog.js'
+export type { CredentialsDialogProps } from './components/CredentialsDialog.js'
 export {
   credentialOptions,
   modelOptions,

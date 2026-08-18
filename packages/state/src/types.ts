@@ -141,6 +141,12 @@ export interface SessionListEntry {
 
 /** `settings.describe` 的返回。 */
 export type SettingsOverview = ResponseValue<'settings.describe'>
+/** 一个命名空间的脱敏视图（schema + value + secrets + revision）。 */
+export type SettingsNamespace = SettingsOverview['namespaces'][number]
+/** 命名空间里一个 schema 声明的 secret 槽位（只有 path 与 set，值永不下线）。 */
+export type SettingsSecretSlot = SettingsNamespace['secrets'][number]
+/** `settings.mutate` 的一个路径寻址编辑（set/unset）。 */
+export type SettingsPathOp = RequestPayload<'settings.mutate'>['ops'][number]
 /** `llm.providers` 的一行。 */
 export type ProviderEntry = ResponseValue<'llm.providers'>['providers'][number]
 /** `llm.models` 的返回（`groups` + `failures`）——**部署级**清单，与 C 批的
@@ -337,15 +343,33 @@ export interface DshrState {
   answerQuestion(sessionId: SessionId, answers: unknown): Promise<void>
 
   // ---- E 批：设置 / 凭证 / provider / 目标 ----
-  // 设计取向：dsh 自带 settings.openDocument / agentPreset.openDocument——
-  // 上游的意图就是「用编辑器改配置文件」，所以这里**只读为主，不做设置编辑器**。
-  // settings.update/replace/mutate 与 credentials.set/unset 会写用户真实的 ~/.dsh，
-  // 这一层**故意不包它们**。
+  // 设置在 TUI 里改完：`settings.mutate` 按字段路径写（粒度细、CAS 保护），
+  // update/replace 粒度太粗（会把并发的别处改动盖掉）不包。
+  // credentials.set/unset 仍不包——凭证值只进 gitignored 的 secrets/，
+  // 不走终端明文输入（项目章程）。
 
   /** `settings.describe`：全命名空间的脱敏分层值（secret 字段永不下线，上游保证）。 */
   describeSettings(): Promise<SettingsOverview>
+  /**
+   * `settings.mutate`：按字段路径改一个命名空间，CAS 用 `expectedRevision`。
+   * 返回值直接带回新的 revision 与脱敏 value——**用它更新本地状态，不要再 describe**。
+   * CAS 撞了抛 `settings-conflict`（消息本身可读），校验失败抛 `settings-rejected`（均实测）。
+   */
+  mutateSetting(
+    ns: string,
+    ops: readonly SettingsPathOp[],
+    expectedRevision: number,
+  ): Promise<SettingsNamespace>
   /** `settings.openDocument`：把设置文档交给系统编辑器。失败抛错（含 opener 不可用）。 */
   openSettingsDocument(): Promise<void>
+  /**
+   * `credentials.set`：把一个凭证值写进 dsh 的凭证存储（专用存储，不物化进环境）。
+   * 只写这一个键；被只读层（活环境变量）影子住时抛 `credential-rejected`（上游契约）。
+   * ⚠️ 调用方保证：值只从掩码输入来，不进日志 / 通知 / 错误消息。
+   */
+  setCredential(ref: string, value: string): Promise<void>
+  /** `credentials.unset`：从可写层删掉一个凭证（幂等；影子层拒绝同 set）。 */
+  unsetCredential(ref: string): Promise<void>
   /** `llm.providers`：可配置 provider 目录 + 活跃状态。只读。 */
   listProviders(): Promise<readonly ProviderEntry[]>
   /** `llm.models`：host 级模型目录（不带会话选择）。只读。

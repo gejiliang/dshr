@@ -8,6 +8,13 @@ export interface DialogPromptProps {
   /** 初始内容（重命名带当前标题），非受控。 */
   readonly initial?: string
   readonly placeholder?: string
+  /**
+   * 掩码输入（凭证值用，ssh/sudo 同款）：回显 `•`，**真实字符不上屏**。
+   * 调用方的纪律：masked 的值不进日志 / 通知 / 错误消息。
+   */
+  readonly mask?: boolean
+  /** 校验失败的可读提示（warning 色一行）；给了它对话框就**不关**，改完再提交。 */
+  readonly error?: string
   /** enter 确认；**空文本不提交**（重命名这类空值本来就会被 host 拒，title-invalid）。 */
   readonly onSubmit: (text: string) => void
   /** esc 取消。 */
@@ -20,7 +27,7 @@ export interface DialogPromptProps {
  *
  * 键位：字符在光标处插入、backspace/delete、左右方向键；enter 提交、esc 取消。
  */
-export function DialogPrompt({ title, initial = '', placeholder, onSubmit, onCancel }: DialogPromptProps) {
+export function DialogPrompt({ title, initial = '', placeholder, mask = false, error, onSubmit, onCancel }: DialogPromptProps) {
   const [text, setText] = useState(initial)
   const [cursor, setCursor] = useState(initial.length)
   // 与 Composer 同一条纪律：useInput 回调闭包可能过期，状态镜像进 ref 且同步更新。
@@ -61,6 +68,9 @@ export function DialogPrompt({ title, initial = '', placeholder, onSubmit, onCan
   })
 
   const glyph = text[cursor] ?? ' '
+  // 掩码模式：上屏的全是 •，光标块照常在原位置（长度可见、字符不可见——ssh 同款）。
+  const shown = mask ? '•'.repeat(text.length) : text
+  const shownGlyph = mask && text[cursor] !== undefined ? '•' : glyph
   return (
     <Box flexDirection="column">
       {/* 标题行：与 DialogSelect 同（paddingLeft=4 paddingRight=4，标题左、esc 右） */}
@@ -73,14 +83,19 @@ export function DialogPrompt({ title, initial = '', placeholder, onSubmit, onCan
       <Box height={1} flexShrink={0} />
       {/* 输入行：backgroundPanel 底色、inverse 光标块（同 DialogSelect 的搜索行） */}
       <Box paddingLeft={4} paddingRight={4} backgroundColor={theme.backgroundPanel}>
-        <Text color={theme.text}>{text.slice(0, cursor)}</Text>
-        <Text backgroundColor={theme.primary}>{glyph === ' ' ? ' ' : glyph}</Text>
-        <Text color={theme.text}>{text.slice(cursor + (text[cursor] !== undefined ? 1 : 0))}</Text>
+        <Text color={theme.text}>{shown.slice(0, cursor)}</Text>
+        <Text backgroundColor={theme.primary}>{shownGlyph === ' ' ? ' ' : shownGlyph}</Text>
+        <Text color={theme.text}>{shown.slice(cursor + (text[cursor] !== undefined ? 1 : 0))}</Text>
         {text === '' && placeholder !== undefined ? (
           <Text color={theme.textMuted}> {placeholder}</Text>
         ) : null}
       </Box>
       <Box height={1} flexShrink={0} />
+      {error !== undefined ? (
+        <Box paddingLeft={4} paddingRight={4}>
+          <Text color={theme.error}>{error}</Text>
+        </Box>
+      ) : null}
       <Box paddingLeft={4} paddingRight={4}>
         <Text color={theme.textMuted}>enter confirm</Text>
       </Box>

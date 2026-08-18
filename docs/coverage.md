@@ -134,21 +134,37 @@ C 批没做——面板只放动词，不画按不动的按钮。
 `credentials.describe` `set` `unset`、`llm.providers` `models` `discoverModels`、
 `goal.create` `edit` `pause` `resume` `complete` `clear`。
 
-**E 批已落（2026-08-17）**。设计取向是「打开文档」而不是在 TUI 里做配置编辑器
-（上游自带 `settings.openDocument` 就是这个意图）：
+**E 批已落（2026-08-17）；2026-08-18 设置与凭证改成 TUI 内可写**。
+起因是一次真实的设计错误：`openDocument` 弹的是**宿主机桌面**的编辑器，SSH 过来的人
+根本看不见（docs/gap-shapes.md §十一）——设置必须能在 TUI 里改完：
 
-- `Open settings` → `settings.openDocument`；`View settings` → `settings.describe` 只读列表
-- `Configure credentials` → ref 从设置的 `apiKeyEnv` 字段发现 + `credentials.describe` 只读列出配置状态；
-  **`credentials.set` / `unset` 没做 UI**（终端里明文输密钥是坏主意，凭证值只进 gitignored 的 `secrets/`）
+- `Settings` → **TUI 设置编辑器**（新默认入口）：命名空间 → 字段 → 按类型编辑的三层下钻，
+  schema 走查器把 schemastery 序列化格式走成字段树（`@dshr/state`，纯函数）。
+  枚举（union of const）给选择列表、number 按 meta.min/max/step 本地校验（不合法不提交）、
+  boolean 就地切换、object 下钻、array/dict 这一版只读且标明。restart 命名空间标出。
+  写只走 `settings.mutate`（字段路径粒度 + `expectedRevision` CAS，返回带新 revision，
+  不再 describe）；CAS 撞了（`settings-conflict`）原样显示 host 的可读消息。
+  `role: 'secret'` 字段值永不下线，只显示 configured / not configured，不提供输入。
+- `Open settings file on the host machine` → `settings.openDocument`（保留，名字说清楚它干什么）
+- `Configure credentials` → ref 从设置的 `apiKeyEnv` 字段发现 + `credentials.describe`；
+  **`credentials.set` 走掩码输入**（ssh/sudo 同款，真值不上屏、不进日志与回执）、
+  `unset` 有一步确认；`writable: false` 的只读展示，点了给理由。
+  `dsh-credentials-local` 是 host 管理的专用凭证存储（不物化进环境、跨进程写锁），
+  上游本来就预期客户端提供录入入口——与「凭证不进仓库」不冲突（进的是 dsh 的存储）。
 - `View providers` / `View models` → `llm.providers` / `llm.models` 只读
 - 目标：侧栏 Goal 块读 `goal` 投影；`Create goal`（收 objective）+ `Pause` / `Resume` / `Complete` / `Clear`
   按 phase 显隐，ref 派发时现读（revision 会被自动轮次推进，实测撞过 STALE）。
   `goal.edit` 与 `llm.discoverModels` 没接（前者需要编辑 UI，后者会打真实 provider 端点）。
-- **没包进 state 层的**：`settings.update` / `replace` / `mutate` / `credentials.set` / `unset`——
-  它们写用户真实的 `~/.dsh`，dshr 这轮的配置修改路径就是 openDocument。
+- **没包进 state 层的**：`settings.update` / `replace`——粒度太粗，改一个字段会把并发的
+  别处改动盖掉，表单只认 `mutate`。
 
-真实截屏：`docs/screenshots/e-batch-providers.txt`、`docs/screenshots/e-batch-settings.txt`
-（mock + host + tmux 150×45，对照 `opencode-dialogs.md` §二的模型对话框形状）。
+真实截屏（mock + 隔离 DSH_HOME + tmux 150×45）：
+`docs/screenshots/settings-editor-namespaces.txt`（命名空间列表）、
+`settings-editor-secret.txt`（secret 字段只显示配置状态）、
+`settings-editor-enum.txt`（枚举选择，当前值 ●）、
+`settings-editor-mutate-receipt.txt`（改完的回执与新 revision）、
+`credentials-set-masked.txt`（凭证掩码录入后的 Configured 态）。
+另见 `e-batch-providers.txt`。
 
 ## 四、opencode 展现的判据
 

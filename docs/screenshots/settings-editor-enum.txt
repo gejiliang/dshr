@@ -1,0 +1,45 @@
+      ui-theme · preference                                                                        esc
+                                                                                                              New session
+       Search
+                                                                                                              ~/.herdr/worktrees/dshr/dshr-settings…
+      light
+      dark
+    ● system
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Ask anything... "Fix a TODO in the codebase"
+  ┃
+  ┃  Standard · deepseek-v4-flash deepseek-official
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀    • dshr 0.0.0
+  tab preset  ctrl+p commands                                              enter send  shift+enter newline
+~/.herdr/worktrees/dshr/dshr-settings-editor                                                                            • connected  deepseek-v4-flash

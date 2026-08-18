@@ -26,12 +26,14 @@ import {
   type SessionId,
   type SessionListEntry,
   type SessionModels,
+  type SettingsOverview,
   type SkillEntry,
 } from '@dshr/state'
 import {
   CommandPalette,
   Composer,
   Conversation,
+  CredentialsDialog,
   DialogPrompt,
   DialogSelect,
   Footer,
@@ -39,12 +41,11 @@ import {
   Logo,
   PendingPrompt,
   QueueDock,
+  SettingsEditor,
   Sidebar,
   createCommandRegistry,
-  credentialOptions,
   modelOptions,
   providerOptions,
-  settingsOptions,
   theme,
   type CommandRegistry,
   type DialogSelectOption,
@@ -78,7 +79,7 @@ type DialogState =
   | { readonly kind: 'preset'; readonly presets: readonly AgentPresetEntry[] }
   | { readonly kind: 'sessions'; readonly items: readonly SessionListEntry[] }
   | { readonly kind: 'rename'; readonly sessionId: SessionId; readonly initial: string }
-  | { readonly kind: 'settings' }
+  | { readonly kind: 'settings-editor'; readonly data: SettingsOverview }
   | { readonly kind: 'credentials' }
   | { readonly kind: 'providers' }
   | { readonly kind: 'models' }
@@ -341,13 +342,19 @@ export function SessionApp({
 
   // ── E 批：只读对话框的取数函数（引用必须稳定——LazyDialogSelect 的
   //    useEffect 依赖它，变了就重取）──────────────────────────────
-  const loadSettings = useCallback(async () => settingsOptions(await state.describeSettings()), [state])
-  const loadCredentials = useCallback(
-    async () => credentialOptions(await state.describeCredentials()),
-    [state],
-  )
+  const loadCredentials = useCallback(() => state.describeCredentials(), [state])
   const loadProviders = useCallback(async () => providerOptions(await state.listProviders()), [state])
   const loadModels = useCallback(async () => modelOptions(await state.listModelCatalog()), [state])
+
+  /** 打开设置编辑器：取全量 describe 再开（取数失败给可读提示）。 */
+  const openSettingsEditor = async (): Promise<void> => {
+    try {
+      const data = await state.describeSettings()
+      setDialog({ kind: 'settings-editor', data })
+    } catch (error) {
+      showNotice(errorText(error))
+    }
+  }
 
   // ── 命令注册表（只注册真命令——每条都走通了的路径）──────────────
   const registryRef = useRef<CommandRegistry | null>(null)
@@ -427,35 +434,35 @@ export function SessionApp({
       category: 'Composer',
       run: () => setDialog({ kind: 'attach-image' }),
     })
-    // E 批：设置 / 凭证 / provider / 部署级模型清单。设计取向是「打开文档」而不是
-    // 在 TUI 里做配置编辑器——上游自带 openDocument 就是这个意图。
-    // settings.update/replace/mutate 与 credentials.set/unset 会写真实 ~/.dsh，
-    // state 层故意不包它们，这里自然也没有入口。
+    // E 批：设置 / 凭证 / provider / 部署级模型清单。
+    // 设置在 TUI 里改完（docs/gap-shapes.md §十一的起因：openDocument 弹的是
+    // **宿主机桌面**的编辑器，SSH 过来的人根本看不见）——TUI 编辑器是默认入口；
+    // openDocument 保留给人真的坐在宿主机前的场景，名字说清楚它干什么。
+    registry.register({
+      name: 'settings.edit',
+      title: 'Settings',
+      desc: 'View and edit settings in this terminal',
+      category: 'Settings',
+      run: () => void openSettingsEditor(),
+    })
     registry.register({
       name: 'settings.open',
-      title: 'Open settings',
-      desc: 'Edit the settings document in your editor',
+      title: 'Open settings file on the host machine',
+      desc: 'Hand the settings document to the desktop editor of the machine running the host',
       category: 'Settings',
       run: async () => {
         try {
           await state.openSettingsDocument()
-          notify(state, activeRef.current, 'Settings document handed to the system editor.')
+          notify(state, activeRef.current, 'Settings document handed to the system editor on the host machine.')
         } catch (error) {
           notify(state, activeRef.current, `Open settings failed: ${errorText(error)}`)
         }
       },
     })
     registry.register({
-      name: 'settings.view',
-      title: 'View settings',
-      desc: 'Read-only overview of settings namespaces',
-      category: 'Settings',
-      run: () => setDialog({ kind: 'settings' }),
-    })
-    registry.register({
-      name: 'credentials.view',
+      name: 'credentials.edit',
       title: 'Configure credentials',
-      desc: 'Which credentials are configured; values live in the settings document',
+      desc: 'Set (masked input) or unset stored credential values',
       category: 'Settings',
       run: () => setDialog({ kind: 'credentials' }),
     })
@@ -777,25 +784,24 @@ export function SessionApp({
             onCancel={close}
           />
         )
-      // ── E 批：懒加载只读对话框 + goal-create 输入框 ─────────────
-      case 'settings':
+      // ── E 批：设置编辑器 / 凭证对话框 / 懒加载只读对话框 / goal-create ──
+      case 'settings-editor':
         return (
-          <LazyDialogSelect
-            title="Settings"
-            load={loadSettings}
+          <SettingsEditor
+            overview={dialog.data}
+            onMutate={(ns, ops, expectedRevision) => state.mutateSetting(ns, ops, expectedRevision)}
             onClose={close}
             maxHeight={maxHeight}
-            note="Read-only view · edit in your editor with the “Open settings” command"
           />
         )
       case 'credentials':
         return (
-          <LazyDialogSelect
-            title="Credentials"
+          <CredentialsDialog
             load={loadCredentials}
+            onSet={(ref, value) => state.setCredential(ref, value)}
+            onUnset={(ref) => state.unsetCredential(ref)}
             onClose={close}
             maxHeight={maxHeight}
-            note="Values never leave the host · set them in the settings document (“Open settings”)"
           />
         )
       case 'providers':

@@ -14,13 +14,13 @@ import type { DialogSelectOption } from './components/DialogSelect.js'
 import { truncate } from './text-utils.js'
 
 /**
- * `View settings`：每个命名空间一行。value 本体不逐字段展开（那是编辑器的事——
- * 上游自带 openDocument 就是让人去编辑器里改），这里只给定位信息：
- * 生效时机（live/restart）、secret 槽位配置进度、有没有用户覆盖层。
+ * `Settings` 编辑器的第一层：每个命名空间一行（下钻入口，不是只读视图）。
+ * 生效时机（live / ⚠ restart）与 secret 槽位进度进 muted 说明，revision 进 footer。
  */
 export function settingsOptions(overview: SettingsOverview): DialogSelectOption[] {
   return overview.namespaces.map((ns) => {
-    const parts = [`applies ${ns.applies}`]
+    // restart 的要标出来——人得知道改完要重启才生效。
+    const parts = [ns.applies === 'restart' ? '⚠ applies on restart' : 'applies live']
     if (ns.secrets.length > 0) {
       const set = ns.secrets.filter((slot) => slot.set).length
       parts.push(`${set}/${ns.secrets.length} secrets set`)

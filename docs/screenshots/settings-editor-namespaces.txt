@@ -1,7 +1,7 @@
       Settings                                                                                     esc
                                                                                                               New session
        Search
-                                                                                                              /private/tmp/dshr-e-shot
+                                                                                                              ~/.herdr/worktrees/dshr/dshr-settings…
       Namespaces
       ui-onboarding applies live                                                                 rev 0
       web-search-deepseek applies live · 0/1 secrets set                                         rev 0
@@ -10,12 +10,12 @@
       locale applies live                                                                        rev 0
       ui-conversation applies live                                                               rev 0
       agent-presets applies live                                                                 rev 0
-      agent-loop applies live                                                                    rev 0
+      agent-loop applies live                                                                    rev 2
       shell applies live                                                                         rev 0
       permission applies live                                                                    rev 0
-      llm-pi-ai applies live · user overrides                                                    rev 0
+      llm-pi-ai applies live                                                                     rev 0
 
-      Read-only view · edit in your editor with the “Open settings” command
+
 
 
 
@@ -39,7 +39,7 @@
   ┃
   ┃  Ask anything... "Fix a TODO in the codebase"
   ┃
-  ┃  Standard · mock-model mock
+  ┃  Standard · deepseek-v4-flash deepseek-official
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀    • dshr 0.0.0
-                                                                           enter send  shift+enter newline
-/private/tmp/dshr-e-shot                                                                                                       • connected  mock-model
+  tab preset  ctrl+p commands                                              enter send  shift+enter newline
+~/.herdr/worktrees/dshr/dshr-settings-editor                                                                            • connected  deepseek-v4-flash

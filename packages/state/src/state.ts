@@ -42,7 +42,9 @@ import type {
   SessionListEntry,
   SessionModels,
   SessionSummary,
+  SettingsNamespace,
   SettingsOverview,
+  SettingsPathOp,
   SkillEntry,
   WorkspaceId,
   WorkspaceSummary,
@@ -369,6 +371,28 @@ class DshrStateImpl implements DshrState {
   async openSettingsDocument(): Promise<void> {
     const res = await this.client.call('settings.openDocument', {})
     if (!res.ok) throw rpcFailure('settings.openDocument', res.error)
+  }
+
+  async mutateSetting(
+    ns: string,
+    ops: readonly SettingsPathOp[],
+    expectedRevision: number,
+  ): Promise<SettingsNamespace> {
+    const res = await this.client.call('settings.mutate', { ns, ops: [...ops], expectedRevision })
+    if (!res.ok) throw rpcFailure('settings.mutate', res.error)
+    return res.value
+  }
+
+  // ⚠️ value 只在这一行越线（上游契约：credentials 域唯一的值通道）。
+  // 不许 log、不许拼进错误消息——rpcFailure 只带 host 的 code/message，不含载荷。
+  async setCredential(ref: string, value: string): Promise<void> {
+    const res = await this.client.call('credentials.set', { ref, value })
+    if (!res.ok) throw rpcFailure('credentials.set', res.error)
+  }
+
+  async unsetCredential(ref: string): Promise<void> {
+    const res = await this.client.call('credentials.unset', { ref })
+    if (!res.ok) throw rpcFailure('credentials.unset', res.error)
   }
 
   async listProviders(): Promise<readonly ProviderEntry[]> {

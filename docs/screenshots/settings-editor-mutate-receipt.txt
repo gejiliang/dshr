@@ -1,0 +1,45 @@
+      maxParallelToolCalls updated (rev 3)
+                                                                                                              New session
+      agent-loop                                                                                   esc
+                                                                                                              ~/.herdr/worktrees/dshr/dshr-settings…
+       Search
+
+      maxParallelToolCalls                                                                          12
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Ask anything... "Fix a TODO in the codebase"
+  ┃
+  ┃  Standard · deepseek-v4-flash deepseek-official
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀    • dshr 0.0.0
+  tab preset  ctrl+p commands                                              enter send  shift+enter newline
+~/.herdr/worktrees/dshr/dshr-settings-editor                                                                            • connected  deepseek-v4-flash
