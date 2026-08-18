@@ -249,6 +249,16 @@ export function SessionApp({
 
   // ── 当前会话（切会话/分叉会换）─────────────────────────────────
   const [activeSessionId, setActiveSessionId] = useState<SessionId>(initialSessionId)
+  // ⚠️ **也要订阅会话视图本身**，不能只订阅 state。
+  //
+  // 会话视图的变更（`pushNotice` 这类本地反馈行）只通知会话订阅者，而会话的订阅
+  // 原来只发生在 `<Conversation>` 内部——它**只在非空分支挂载**。于是空白会话上
+  // 推一条 notice：订阅者一个都没有 → SessionApp 不重绘 → `empty` 不会被重算 →
+  // 永远停在 logo，通知看不见。
+  //
+  // 踩过：斜杠命令在空白会话上返回 undefined，回执推了但屏幕纹丝不动（探针证实
+  // 分支确实进了、notify 确实调了）。**通知通道在最需要它的时候不可见，比没有更糟。**
+  useEffect(() => state.conversation(activeSessionId).subscribe(bump), [state, activeSessionId])
   const activeRef = useRef(activeSessionId)
   const switchSession = (id: SessionId): void => {
     if (id === activeRef.current) return
@@ -618,7 +628,22 @@ export function SessionApp({
     void slashSource.run(id, line).then(
       (receipt) => {
         // 业务失败（CommandExecution.result.kind === 'error'）的回执进会话 notice 行。
-        if (receipt !== undefined) notify(state, id, receipt)
+        if (receipt !== undefined) {
+          notify(state, id, receipt)
+          return
+        }
+        // ⚠️ `undefined` = **这行没被任何命令认领**，绝不能静默吞掉。
+        //
+        // 实测踩过：**空白会话（还没跑过一轮）上执行任何斜杠命令都返回 undefined**——
+        // host 侧 `CommandRuntime.execute` 走 `view(agent).get(name)`，而空白会话
+        // 还没有 agent，视图是空的。当时表现就是「回车之后界面上什么都不发生」，
+        // 正是我们最想避免的那类「按钮点了没反应」。
+        // 跑过一轮之后同一条命令就正常了（实测 `/compact` 返回真实回执）。
+        notify(
+          state,
+          id,
+          `/${entry.name} did nothing — slash commands need a started session; send a message first.`,
+        )
       },
       (error: unknown) => notify(state, id, `/${entry.name} failed: ${errorText(error)}`),
     )
@@ -656,7 +681,14 @@ export function SessionApp({
   const contentWidth = contentColumnWidth - 4
 
   // 空会话（还没说过话）：中央 logo（opencode Home 的样子）。
-  const empty = view.items.every((item) => item.kind !== 'user' && item.kind !== 'assistant')
+  // 空状态（画 logo）的判定：**通知与错误也算内容**。
+  //
+  // ⚠️ 踩过：原来只看 user/assistant，于是在**空白会话**上任何 `pushNotice` 都画不出来——
+  // 视图仍被判为空 → 渲染 logo → 通知被顶掉。表现是「回车之后界面上什么都不发生」，
+  // 而这正是通知通道存在的意义（斜杠命令在空白会话上返回 undefined 就撞了这个）。
+  // 通知channel 在最需要它的时候不可见，比没有更糟。
+  const VISIBLE_KINDS = new Set(['user', 'assistant', 'notice', 'error'])
+  const empty = view.items.every((item) => !VISIBLE_KINDS.has(item.kind))
 
   // 输入框固定占用：pad 行 + ≥1 输入行 + pad 行 + meta 行 + ╹▀ 行 + 快捷键行。
   const promptRows = 6
