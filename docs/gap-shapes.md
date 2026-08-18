@@ -409,6 +409,25 @@ interface SettingsNamespaceView {
 - **`credential-ref`**（3 处）：值是**环境变量名**（如 `MOCK_API_KEY`），不是密钥本身。
   这个可以正常当文本编辑——它本来就该是明文。
 
+### 写侧的前提已经排过险（`tools/probe-settings-write.mjs` 实测）
+
+「在 TUI 里改设置」这件事的前提是 `settings.mutate` 从客户端调得通。实测结论：
+
+```
+目标: agent-loop  revision=0  applies=live  writable=true
+字段 maxParallelToolCalls 当前 = 10
+mutate → ✅ ok，新 revision=1
+CAS 用过期 revision → ✅ 被拒: settings-conflict: settings namespace "agent-loop"
+                       changed since it was read (expected revision 0, now 1)
+```
+
+- **没有信任栅栏挡**（不像 `agentPreset.read/copy/...` 那批写作面方法）
+- **CAS 是真的**：过期 `expectedRevision` 被拒，错误码 `settings-conflict`，消息可读到能直接展示给人
+- 返回值带新 `revision`，**拿它更新本地状态即可，不用再 describe 一次**
+
+⚠️ 这个探针**会真的写**（虽然刻意「把字段设回当前值」，仍然会让 revision 前进）。
+**只对隔离的 DSH_HOME 用。**
+
 ### 斜杠命令：客户端的活，不是发给模型
 
 实测：`session.prompt` 发 `/help` **只是当普通文本发给了模型**，事件流里没有 `command/run`。
