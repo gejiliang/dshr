@@ -385,3 +385,32 @@ test('suggested 命令：未过滤时只在 Suggested 里露一次，一搜本�
   assert.strictEqual(ran, 'model', '选中过滤后的本体应派发到原命令名（不带 suggested: 前缀）')
   app.unmount()
 })
+
+test('searchable=false：不画搜索框，且打字不回显（凭证明文回显回归）', async (t) => {
+  t.after(cleanup)
+  // 钉一个真踩过的隐患：凭证的动作菜单只有一两个选项却带搜索框，
+  // 人在「凭证」这个上下文里早按一步 enter，密钥就**明文打进搜索框并回显在屏幕上**。
+  // 掩码守住的是真正的录入框，守不住路径上的前一步。
+  const app = render(
+    h(DialogSelect, {
+      title: 'DEEPSEEK_API_KEY',
+      searchable: false,
+      options: [
+        { title: 'Set value…', value: 'set' },
+        { title: 'Unset…', value: 'unset' },
+      ],
+      onSelect: () => {},
+      onCancel: () => {},
+    }),
+  )
+  await flush()
+  assert.ok(!(app.lastFrame() ?? '').includes('Search'), '关了搜索就不该画搜索框')
+
+  app.stdin.write('sk-not-a-real-key')
+  await flush()
+  const frame = app.lastFrame() ?? ''
+  assert.ok(!frame.includes('sk-not-a-real-key'), `打进来的字符绝不能回显: ${JSON.stringify(frame)}`)
+  assert.ok(!frame.includes('sk-'), '任何片段都不许露')
+  assert.ok(frame.includes('Set value…'), '选项照常在')
+  app.unmount()
+})

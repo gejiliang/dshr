@@ -48,6 +48,14 @@ export interface DialogSelectProps {
   readonly onCancel: () => void
   /** 搜索框占位符，默认 `Search`。 */
   readonly placeholder?: string
+  /**
+   * 关掉搜索框（默认开）。
+   *
+   * ⚠️ **凭证那类对话框必须关掉它。** 踩过：凭证的动作菜单只有一两个选项却带搜索框，
+   * 人在「凭证」这个上下文里早按一步 enter，密钥就**明文打进了搜索框并回显在屏幕上**。
+   * 掩码守住了真正的录入框，守不住路径上的前一步——选项少到不需要搜索时就别给搜索框。
+   */
+  readonly searchable?: boolean
   /** 列表窗口高度（行）；超出时窗口跟随选中项滚动。不给则不截断。 */
   readonly maxHeight?: number
   /**
@@ -156,6 +164,7 @@ export function DialogSelect({
   onSelect,
   onCancel,
   placeholder = 'Search',
+  searchable = true,
   maxHeight,
   remoteSearch,
 }: DialogSelectProps) {
@@ -251,10 +260,12 @@ export function DialogSelect({
       return
     }
     if (key.backspace || key.delete) {
-      if (query !== '') apply({ query: query.slice(0, -1), selected: 0 })
+      if (searchable && query !== '') apply({ query: query.slice(0, -1), selected: 0 })
       return
     }
     if (key.ctrl || key.meta || input === '') return
+    // 关了搜索就**丢掉字符**，绝不累积——见 searchable 的注释（凭证明文回显）。
+    if (!searchable) return
     apply({ query: query + input.replace(/\r/g, ''), selected: 0 })
   })
 
@@ -280,8 +291,8 @@ export function DialogSelect({
         <Text color={theme.textMuted}>esc</Text>
       </Box>
       <Box height={1} flexShrink={0} />
-      {/* 搜索框：底色 backgroundPanel，光标 primary */}
-      <Box paddingLeft={4} paddingRight={4} backgroundColor={theme.backgroundPanel}>
+      {/* 搜索框：底色 backgroundPanel，光标 primary。searchable=false 时整个不画。 */}
+      <Box paddingLeft={4} paddingRight={4} backgroundColor={theme.backgroundPanel} display={searchable ? 'flex' : 'none'}>
         {state.query === '' ? (
           <>
             <Text backgroundColor={theme.primary}> </Text>

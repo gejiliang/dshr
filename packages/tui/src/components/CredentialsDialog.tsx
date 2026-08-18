@@ -143,6 +143,9 @@ export function CredentialsDialog({ load, onSet, onUnset, onClose, maxHeight }: 
     body = (
       <DialogSelect
         key={`confirm-unset:${screen.ref.ref}`}
+        // ⚠️ 不给搜索框：这两屏都在「凭证」上下文里，人早按一步就会把密钥
+        // 明文打进搜索框并回显（踩过）。选项只有一两条，本来也不需要搜索。
+        searchable={false}
         title={`Unset ${screen.ref.ref}?`}
         options={[
           { title: 'Cancel', value: 'cancel' },
@@ -168,6 +171,8 @@ export function CredentialsDialog({ load, onSet, onUnset, onClose, maxHeight }: 
     body = (
       <DialogSelect
         key={`actions:${credential.ref}`}
+        // ⚠️ 同上：不给搜索框。这一屏是密钥误输入的高危位置。
+        searchable={false}
         title={credential.ref}
         options={[
           {
