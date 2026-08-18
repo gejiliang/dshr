@@ -1,11 +1,29 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import { theme } from '../theme.js'
+import { filterOptions, type DialogSelectOption } from './DialogSelect.js'
 
 /** composer 上挂着的一张待发图（字节在 state 层的 ImageDraft 里，这里只拿展示要的）。 */
 export interface ComposerAttachment {
   readonly name: string
   readonly bytes: number
+}
+
+/**
+ * `/` 唤出的一条命令候选。两个来源合并而成（dshr 自己的注册表 + 注入的 dsh
+ * 命令表），组装是外壳的事，Composer 只认这个形状。
+ */
+export interface SlashCommandEntry {
+  /** 唯一键（React key）。 */
+  readonly key: string
+  /** 斜杠 token（不含前导 `/`）；过滤、补全、执行都用它。 */
+  readonly name: string
+  /** 名字后面跟的 muted 说明。 */
+  readonly label?: string
+  /** 来源：`dshr` = 客户端注册表，`dsh` = host 的命令表。 */
+  readonly source: 'dshr' | 'dsh'
+  /** 命令声明了自由文本参数：enter 只把 `/name ` 补全进输入框，不立即执行。 */
+  readonly takesInput?: boolean
 }
 
 export interface ComposerProps {
@@ -52,6 +70,16 @@ export interface ComposerProps {
   onClearAttachments?: () => void
   /** 一条要用户看见的信息（如附件超限被拒的理由），画在输入框上方，error 色。 */
   notice?: string
+  /**
+   * `/` 唤出的命令候选列表（dshr 自己的 + 注入来源的 dsh 命令，由外壳合并好）。
+   * 不给则 `/` 只是普通字符（没有候选可弹）。
+   */
+  slashCommands?: readonly SlashCommandEntry[]
+  /**
+   * enter 选中一条「立即执行」的命令时调用（`takesInput` 的命令走补全，不走这里）。
+   * 此时输入框会被清空。
+   */
+  onSlashCommand?: (entry: SlashCommandEntry) => void
 }
 
 export type ComposerHint = 'command' | 'reference' | null
@@ -131,8 +159,8 @@ export function setTerminalColumnsForTest(columns: number): void {
  * 占位提示照上游 home 路由：`Ask anything... "<example>"`，例子池每次提交轮换。
  *
  * 多行：Shift+Enter（kitty 协议）或 Ctrl+J 插入换行，Enter 提交。
- * 光标用 inverse 渲染。`/` 触发命令提示、`@` token 触发引用提示；
- * 候选列表这一版是空面板。
+ * 光标用 inverse 渲染。`/` 开头唤出命令候选（`/ 是客户端的活`，见
+ * docs/gap-shapes.md §十一）；`@` token 触发引用提示（这一版还是空面板）。
  */
 export function Composer({
   onSubmit,
@@ -151,6 +179,8 @@ export function Composer({
   attachments = [],
   onClearAttachments,
   notice,
+  slashCommands,
+  onSlashCommand,
 }: ComposerProps) {
   const { stdout } = useStdout()
   const liveColumns = stdout !== undefined && stdout.columns > 0 ? stdout.columns : 0
@@ -169,10 +199,74 @@ export function Composer({
   // 状态镜像进 ref 且**同步更新**，不能只靠 setState。
   const stateRef = useRef({ text, cursor })
   stateRef.current = { text, cursor }
+  // 斜杠弹出层：selected 是当前高亮行；dismissed 是 esc 收起（保留文本），
+  // **文本一变就重新武装**——esc 之后继续打字，候选该回来。
+  const [slashUi, setSlashUi] = useState({ selected: 0, dismissed: false })
+  const slashUiRef = useRef(slashUi)
+  slashUiRef.current = slashUi
+  const applySlashUi = (next: { selected: number; dismissed: boolean }) => {
+    slashUiRef.current = next
+    setSlashUi(next)
+  }
   const apply = (next: { text: string; cursor: number }) => {
+    if (next.text !== stateRef.current.text && slashUiRef.current.dismissed) {
+      applySlashUi({ selected: 0, dismissed: false })
+    }
     stateRef.current = next
     setText(next.text)
     setCursor(next.cursor)
+  }
+
+  // ── `/` 命令候选 ────────────────────────────────────────────
+  // 复用 DialogSelect 的 fuzzyScore/filterOptions，不另写一套匹配。
+  const slashOptions = useMemo<readonly DialogSelectOption[] | undefined>(
+    () =>
+      slashCommands?.map((entry) => ({
+        title: entry.name,
+        ...(entry.label !== undefined ? { label: entry.label } : {}),
+        value: entry.key,
+      })),
+    [slashCommands],
+  )
+  const slashOptionsRef = useRef(slashOptions)
+  slashOptionsRef.current = slashOptions
+  const slashCommandsRef = useRef(slashCommands)
+  slashCommandsRef.current = slashCommands
+  const onSlashCommandRef = useRef(onSlashCommand)
+  onSlashCommandRef.current = onSlashCommand
+
+  /** 按键到达那一刻现算弹出层状态（读 ref，不读可能过期的渲染快照）。 */
+  const slashSnapshot = (): {
+    open: boolean
+    filtered: readonly DialogSelectOption[]
+    selected: number
+  } => {
+    const options = slashOptionsRef.current
+    const { text: current } = stateRef.current
+    // 只在行首空输入触发：`/` 必须是第一个字符，且还没打出空白（打出空白 =
+    // 在敲参数，候选收起）。中途的 `/`（路径之类）根本不满足 startsWith。
+    if (options === undefined) return { open: false, filtered: [], selected: 0 }
+    const query = current.startsWith('/') && !/\s/.test(current) ? current.slice(1) : null
+    if (query === null || slashUiRef.current.dismissed) return { open: false, filtered: [], selected: 0 }
+    const filtered = filterOptions(options, query)
+    return {
+      open: true,
+      filtered,
+      selected: Math.min(slashUiRef.current.selected, Math.max(0, filtered.length - 1)),
+    }
+  }
+
+  const pickSlash = (option: DialogSelectOption): void => {
+    const entry = slashCommandsRef.current?.find((e) => e.key === option.value)
+    if (entry === undefined) return
+    if (entry.takesInput === true) {
+      // 带参数的命令：补全成 `/name ` 让人接着敲，不执行。
+      apply({ text: `/${entry.name} `, cursor: entry.name.length + 2 })
+      return
+    }
+    onSlashCommandRef.current?.(entry)
+    placeholderCursor += 1
+    apply({ text: '', cursor: 0 })
   }
 
   useInput(
@@ -180,6 +274,35 @@ export function Composer({
       // 按键到达那一刻现问一次--`disabled` 是上一次渲染的值，会漏键（见 acceptsKey 的注释）。
       if (acceptsKey !== undefined && !acceptsKey()) return
       const { text: current, cursor: at } = stateRef.current
+      // 斜杠弹出层开着时，这几个键归它（同一个 useInput 里拦，不存在第二个处理器
+      // 抢键的问题）。注意 enter 的 shift+enter（换行）不受拦——换行后文本含空白，
+      // 弹出层自己就关了。
+      const slash = slashSnapshot()
+      if (slash.open) {
+        if (key.escape) {
+          // 收起并保留已输入的文本；文本再变时重新武装（见 apply）。
+          applySlashUi({ selected: 0, dismissed: true })
+          return
+        }
+        if (slash.filtered.length > 0) {
+          if (key.upArrow) {
+            applySlashUi({ selected: Math.max(0, slash.selected - 1), dismissed: false })
+            return
+          }
+          if (key.downArrow) {
+            applySlashUi({
+              selected: Math.min(slash.filtered.length - 1, slash.selected + 1),
+              dismissed: false,
+            })
+            return
+          }
+          if (key.return && !key.shift) {
+            const picked = slash.filtered[slash.selected]
+            if (picked !== undefined) pickSlash(picked)
+            return
+          }
+        }
+      }
       if (key.escape) {
         onInterrupt?.()
         return
@@ -236,6 +359,19 @@ export function Composer({
   )
 
   const hint = hintFor(text, cursor)
+  // 渲染期的弹出层快照：slashUiRef/slashOptionsRef 都在渲染体里同步过，这里读到的是当前值。
+  const slashView = slashSnapshot()
+  // 跟随选中项的滚动窗口（跟 DialogSelect 同一个手法）。
+  const SLASH_MAX_ROWS = 8
+  let slashWindow = slashView.filtered
+  let slashWindowOffset = 0
+  if (slashView.filtered.length > SLASH_MAX_ROWS) {
+    slashWindowOffset =
+      slashView.selected >= SLASH_MAX_ROWS ? slashView.selected - SLASH_MAX_ROWS + 1 : 0
+    slashWindow = slashView.filtered.slice(slashWindowOffset, slashWindowOffset + SLASH_MAX_ROWS)
+  }
+  const slashEntryOf = (value: string): SlashCommandEntry | undefined =>
+    slashCommands?.find((e) => e.key === value)
   const shownPlaceholder = placeholder ?? defaultPlaceholder()
   const lines = text === '' ? [''] : text.split('\n')
   // 光标落在第几行、该行起始偏移
@@ -263,12 +399,35 @@ export function Composer({
 
   return (
     <Box flexDirection="column">
-      {hint === null ? null : (
+      {slashView.open ? (
         <Box flexDirection="column" paddingLeft={1}>
-          <Text color={theme.textMuted}>{hint === 'command' ? '/ commands' : '@ references'}</Text>
+          {slashWindow.length === 0 ? (
+            <Text color={theme.textMuted}> no matching command</Text>
+          ) : (
+            slashWindow.map((option, index) => {
+              const active = slashWindowOffset + index === slashView.selected
+              return (
+                <Box key={option.value} {...(active ? { backgroundColor: theme.primary } : {})}>
+                  <Text color={active ? theme.background : theme.text} bold={active}>
+                    {' '}/{option.title}
+                  </Text>
+                  {option.label !== undefined ? (
+                    <Text color={active ? theme.background : theme.textMuted}> {option.label}</Text>
+                  ) : null}
+                  {slashEntryOf(option.value)?.takesInput === true ? (
+                    <Text color={active ? theme.background : theme.textMuted}> …</Text>
+                  ) : null}
+                </Box>
+              )
+            })
+          )}
+        </Box>
+      ) : hint === 'reference' ? (
+        <Box flexDirection="column" paddingLeft={1}>
+          <Text color={theme.textMuted}>@ references</Text>
           <Text color={theme.textMuted}> (no candidates wired yet)</Text>
         </Box>
-      )}
+      ) : null}
       {notice !== undefined ? (
         <Box paddingLeft={1}>
           <Text color={theme.error}>{notice}</Text>

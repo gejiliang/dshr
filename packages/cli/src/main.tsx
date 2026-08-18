@@ -66,6 +66,9 @@ async function runConnected(flags: Extract<ParsedFlags, { mode: 'tui' }> & { con
     surface = await mountSurface({
       client,
       state,
+      // ⚠️ 这里**不注入 `slashCommands`**：dsh 的斜杠命令表是 typert remote service，
+      // 而 typert 没走 `/api`（docs/gap-shapes.md §十一）——这条路上 `/` 只出 dshr
+      // 自己的命令，是已决策的取舍。插件路的注入在 `@dshr/bundle` 的 startSurface。
       ...(flags.resume !== undefined ? { resume: flags.resume } : {}),
       ...(model !== undefined ? { model } : {}),
       ...(provider !== undefined ? { provider } : {}),

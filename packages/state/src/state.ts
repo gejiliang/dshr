@@ -102,6 +102,7 @@ class DshrStateImpl implements DshrState {
   private readonly workspaceViews = new Map<WorkspaceId, WorkspaceSummary>()
   private readonly conversations = new Map<SessionId, Conversation>()
   private readonly listeners = new Set<() => void>()
+  private readonly remoteEventListeners = new Set<(event: string, args: readonly unknown[]) => void>()
   private readonly unsubs: Unsubscribe[] = []
   private baselinedGeneration = -1
   private disposed = false
@@ -133,6 +134,13 @@ class DshrStateImpl implements DshrState {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
+    }
+  }
+
+  onRemoteEvent(listener: (event: string, args: readonly unknown[]) => void): Unsubscribe {
+    this.remoteEventListeners.add(listener)
+    return () => {
+      this.remoteEventListeners.delete(listener)
     }
   }
 
@@ -610,9 +618,13 @@ class DshrStateImpl implements DshrState {
         break
       }
       case 'host/archived-sessions-changed':
-      case 'host/remote-event':
       case 'stream/error':
-        // 归档集合与 remote 转发不在 v1 的模型面内。
+        // 归档集合不在 v1 的模型面内。
+        break
+      case 'host/remote-event':
+        // host 转发的 cordis 事件（如 `commands/change`）：原样转给订阅者，
+        // state 层不消费——它不属于会话模型面，属于「命令表变了，重取」这类信号。
+        for (const listener of this.remoteEventListeners) listener(frame.event, frame.args)
         break
     }
   }

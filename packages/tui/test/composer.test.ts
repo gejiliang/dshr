@@ -143,16 +143,15 @@ test('working 时 esc 触发 onInterrupt', async (t) => {
   app.unmount()
 })
 
-test('`/` 开头触发命令提示面板', async (t) => {
+test('没给 slashCommands 时 `/` 只是普通字符（没有候选可弹）', async (t) => {
   t.after(cleanup)
   const app = render(h(Composer, { onSubmit: () => {} }))
   await flush()
-  assert.ok(!outputOf(app).includes('/ commands'))
   app.stdin.write('/')
   await flush()
   const out = outputOf(app)
-  assert.ok(out.includes('/ commands'), `应出现命令提示面板: ${JSON.stringify(out)}`)
-  assert.ok(out.includes('no candidates wired yet'), '候选列表这一版是空面板')
+  assert.ok(!out.includes('no candidates wired yet'), '空面板占位已下架')
+  assert.ok(!out.includes('/ commands'), '没有来源时不应出面板')
   app.unmount()
 })
 

@@ -8,7 +8,7 @@ export { CommandRow, DividerRow, RetryRow, TodoRow } from './components/Awarenes
 export type { CommandItem, DividerItem, RetryItem, TodoViewItem } from './components/AwarenessRows.js'
 export { QueueDock } from './components/QueueDock.js'
 export { Composer, hintFor, insertText, setTerminalColumnsForTest } from './components/Composer.js'
-export type { ComposerAttachment, ComposerHint, ComposerProps } from './components/Composer.js'
+export type { ComposerAttachment, ComposerHint, ComposerProps, SlashCommandEntry } from './components/Composer.js'
 export { Footer } from './components/Footer.js'
 export type { ConnectionStatus, FooterProps } from './components/Footer.js'
 export { Sidebar } from './components/Sidebar.js'

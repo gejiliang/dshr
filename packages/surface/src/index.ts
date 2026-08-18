@@ -20,9 +20,11 @@ import { createState, type DshrState, type SessionId } from '@dshr/state'
 import { render } from 'ink'
 import { createElement as h } from 'react'
 import { SessionApp } from './session-app.js'
+import type { SlashCommandSource } from './slash-commands.js'
 
 export { SessionApp } from './session-app.js'
 export type { SessionAppProps } from './session-app.js'
+export type { RemoteSlashCommand, SlashCommandSource } from './slash-commands.js'
 
 /** 退出时留给拆除的上限，超了就直接走。 */
 const SHUTDOWN_BUDGET_MS = 1500
@@ -47,6 +49,12 @@ export interface MountSurfaceOptions {
   readonly provider?: string
   /** dshr 自身版本（底部版本行）。 */
   readonly version?: string
+  /**
+   * dsh 斜杠命令表的注入来源（见 `slash-commands.ts` 的契约注释）。
+   * 插件路注入走 typert 的真实现；`--connect` 路**不注入**——typert 没走 `/api`，
+   * 那条路上 `/` 只出 dshr 自己的命令（已决策的取舍）。
+   */
+  readonly slashCommands?: SlashCommandSource
   readonly hooks?: SurfaceHooks
 }
 
@@ -124,6 +132,7 @@ export async function mountSurface(options: MountSurfaceOptions): Promise<Surfac
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.provider !== undefined ? { provider: options.provider } : {}),
       ...(options.version !== undefined ? { version: options.version } : {}),
+      ...(options.slashCommands !== undefined ? { slashCommands: options.slashCommands } : {}),
     }),
     { exitOnCtrlC: true },
   )
