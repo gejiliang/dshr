@@ -14,8 +14,12 @@
 - **不 fork dsh，不改 `node_modules/@deepseek-ai/**` 里的任何东西。**
   dshr 的一切以 profile bundle + 插件形式挂上去。上游是 developer preview，
   fork 的长期成本是跟它 diverge。确实缺原语时才考虑，且要留下证据。
-- **不依赖 herdr。** 借它的产品形状，不借它的代码，也不做它的插件。
-  两者是同类替代品，不是上下游。
+- **不复刻 herdr，跑在它里面。** 工作区、tab、pane、活跃 agent 侧栏都是 herdr 的活，
+  dshr 一律不做——做了就是在 herdr 旁边造一个更差的 herdr（试过，`git log -- packages/shell`）。
+  > ⚠️ 这条原来写的是「不依赖 herdr、也不做它的插件、两者是同类替代品」，**方向错了**，
+  > 2026-08-16 改正、2026-08-18 再次确认。分期是：**先做 dsh 的 TUI 插件（dshr 本体），
+  > 再针对 dshr 做 herdr 的插件**。两件事别混——herdr 的需求不该反过来约束 dshr
+  > 作为 dsh 插件的形态（为此我论证错过一次）。
 - **凭证不进仓库。** 值放 `secrets/`（已 gitignore，权威副本在密码管理器），
   代码里只留 `apiKeyEnv` 这类引用。写任何配置前先问一句：这行值泄露了要不要紧。
 - **不碰 `~/.dsh` 之外的用户配置**，不跑安装/部署脚本。
@@ -62,6 +66,31 @@ git commit -m "…"                         # ✅
 开发期**不需要真 provider**：`@deepseek-ai/dsh-llm-mock-server` 是一个假的 OpenAI 兼容端点
 （**不是 dsh 插件，别往 profile 里 add**），起它 + 让 provider 指过去就能零密钥跑通全链路。
 接法见 [`docs/profile.md`](docs/profile.md) 末节。**别为了「验证一下」去要密钥。**
+
+## 人不在那台机器前 —— 任何「在宿主机上打开」的能力都是错的
+
+**dshr 是终端 surface，用的人常常从别的机器 SSH 过来。** 所以凡是「在宿主机上
+弹窗 / 打开编辑器 / 拉起 GUI」的能力，对它一律是错的：**东西出现在他看不见的那台机器上，
+而他这边毫无反应**，连出错都不算——就是静默地什么也没发生。
+
+真踩过：`Open settings` 调 `settings.openDocument`，在 mini 的桌面上弹了个文本编辑器。
+用的人是从终端连过来的，**要不是他碰巧瞥了一眼 mini 的桌面，根本不会知道**。
+
+这一类里已知的有：
+
+| 能力 | 为什么错 | 该怎么做 |
+|---|---|---|
+| `settings.openDocument` / `agentPreset.openDocument` | 在宿主机桌面开编辑器 | **在 TUI 里做交互式编辑**（`settings.mutate` 按字段路径改） |
+| `host.openPath` | 在宿主机上打开路径 | 不接；要看内容就在 TUI 里读 |
+| `host.pickDirectory` 的 `-native` 实现 | 弹 GUI 目录对话框 | patch 里钉 `-browse`：目录列表交给客户端画 |
+
+**注意「上游提供了它」不构成理由。** 上游那些接口是为「本机跑 web UI」的形态设的，
+在那个形态下人就坐在机器前。照搬到终端 surface 是把别人的部署假设当成了自己的。
+我为此写错过一次判断，还把「上游自带 openDocument 就是这个意图」当作理由写进了代码注释——
+**判断错了会顺着注释扩散**。
+
+保留这些命令没问题，但**名字要说实话**（`Open settings file on the host machine`），
+而且**不能是默认入口**。
 
 ## 分包边界是硬的
 
