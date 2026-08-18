@@ -8,9 +8,12 @@ import type {
   DshrClient,
   HostFrame,
   MuxFrame,
+  RequestPayload,
+  ResponseValue,
   RpcId,
   Unsubscribe,
 } from '@dshr/protocol'
+import type { ImageDraft } from './images.js'
 
 export type { Unsubscribe }
 
@@ -44,6 +47,10 @@ export interface SessionSummary {
   title?: string
   cwd?: string
   status: AgentStatus
+  /** 当前模型选择。`session.models` 的 `current` 播种、`session.selectModel` 成功后更新。 */
+  model?: string
+  /** 同 `model` 一对。 */
+  provider?: string
   /**
    * `host/session-added` 的 `blank` 恒为 true（帧在 session/created 时就发）。
    * 第一次 `host/session-status{running:true}` 时翻掉它；
@@ -57,6 +64,15 @@ export interface SessionSummary {
   pending?: PendingInteraction
   /** status 为 'error' 时的最近一条消息。 */
   error?: string
+  /** `session/queue` 帧的排队消息快照（placement === 'queued'）；空时不设。 */
+  queue?: readonly QueuedMessage[]
+  /** `session/jobs` 帧的后台任务整份快照；空时不设。dshr 只展示，杀任务是模型的 `job_kill` 工具。 */
+  jobs?: readonly JobItem[]
+  /**
+   * 会话事件流里见过 `plan/mode`。它的载荷形状**还没打到**（docs/gap-shapes.md §七），
+   * 所以这里只有「发生过」这一个比特，**不知道方向**（是进是出 plan 模式不得而知）。
+   */
+  planModeSeen?: true
 }
 
 export interface WorkspaceSummary {
@@ -65,6 +81,99 @@ export interface WorkspaceSummary {
   path: string
   /** host 的 durable 顺序。 */
   sessionIds: readonly SessionId[]
+}
+
+/** `todo/write` 快照里的一条。形状照抄上游 `TodoItem`（dsh-session types.d.ts）。 */
+export interface TodoEntry {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+}
+
+/** `session/queue` 帧里的一条排队消息（只留渲染要的：id + 纯文本）。 */
+export interface QueuedMessage {
+  id: string
+  text: string
+}
+
+/**
+ * `session/jobs` 帧里的一条后台任务（上游 `JobView` 的结构性拷贝，
+ * `id` 在上游是 branded `JobId`——与 SessionId 一样按结构取用，不重新 brand）。
+ * 形状出处：docs/gap-shapes.md §十。
+ */
+export interface JobItem {
+  id: string
+  /** producer 种类（`bash` / `subagent` / …），上游刻意是裸 string——插件可扩展。 */
+  kind: string
+  label: string
+  status: 'running' | 'stopping' | 'completed' | 'killed' | 'failed'
+  detail?: string
+  /** epoch ms。 */
+  startedAt: number
+  finishedAt?: number
+}
+
+/** `skill.list` 返回的一行（只读目录；调用技能就是 composer 里 `/name`，没有专门 RPC）。 */
+export interface SkillEntry {
+  readonly name: string
+  readonly description: string
+  /** false = 只给人用的技能（`disable-model-invocation`）。 */
+  readonly modelInvocable: boolean
+}
+
+/** `session.models` 的返回——直接就是模型对话框的数据结构，不转译（docs/gap-shapes.md §八）。 */
+export type SessionModels = ResponseValue<'session.models'>
+/** `agentPreset.list` 的一行（dsh 实际只有 standard/code/minimal/cordis 四个）。 */
+export type AgentPresetEntry = ResponseValue<'agentPreset.list'>['presets'][number]
+
+/** 会话选择对话框的一行（`session.list` 映射而来，按 updatedAt 降序）。 */
+export interface SessionListEntry {
+  sessionId: SessionId
+  /** 投影里的标题；还没有时缺省。 */
+  title?: string
+  updatedAt: number
+  running: boolean
+  blank: boolean
+  cwd?: string
+  agentPreset?: string
+}
+
+// ---- E 批类型（形状实测见 docs/gap-shapes.md §八 与 packages/state/src/goal.ts）----
+
+/** `settings.describe` 的返回。 */
+export type SettingsOverview = ResponseValue<'settings.describe'>
+/** `llm.providers` 的一行。 */
+export type ProviderEntry = ResponseValue<'llm.providers'>['providers'][number]
+/** `llm.models` 的返回（`groups` + `failures`）——**部署级**清单，与 C 批的
+    `SessionModels`（`session.models`，会话级、带 current）是两个东西，别合。 */
+export type ModelCatalog = ResponseValue<'llm.models'>
+
+/** 一个已知 credential ref 的配置状态（**永远不含值**——上游契约结构性保证）。 */
+export interface CredentialRefState {
+  /** ref 名，如 `DEEPSEEK_API_KEY`。 */
+  readonly ref: string
+  readonly configured: boolean
+  /** 生效来源（`env` / `file` …），未配置时缺省。 */
+  readonly source?: string
+  readonly writable: boolean
+  /** 引用它的 holder：provider 显示名 / 设置命名空间。 */
+  readonly holders: readonly string[]
+}
+
+export type GoalPhase = 'active' | 'paused' | 'blocked' | 'complete'
+
+/** GoalId 是 branded string（上游品牌）；品牌只是编译期标记，运行时就是字符串。 */
+export type GoalRefId = RequestPayload<'goal.pause'>['ref']['id']
+
+/** 当前目标的读侧视图（`goal` 投影），`{id, revision}` 就是动词的 CAS ref。 */
+export interface GoalInfo {
+  readonly id: GoalRefId
+  readonly revision: number
+  readonly objective: string
+  readonly phase: GoalPhase
+  /** `phase` 为 `blocked` 时的原因（人读的那句）。 */
+  readonly blockedReason?: string
+  readonly roundsStarted: number
+  readonly maxGoalRounds: number
 }
 
 /** 会话视图里的一项。工具调用**折叠成一行**，展开才看详情。 */
@@ -103,6 +212,38 @@ export type ConversationItem =
     }
   | { kind: 'error'; id: string; message: string }
   | { kind: 'notice'; id: string; text: string }
+  /**
+   * 一次 LLM 重试（`llm/retry`，退避结束时 `llm/retry-started` 用 retryId 配对置 started）。
+   * 字段名照抄实测载荷（docs/gap-shapes.md §二）；`code` 是 `failure.code` 分类，
+   * 原始报文 `failure.message` 不进这行。孤儿 retry-started 没有 code/maxRetries。
+   */
+  | {
+      kind: 'retry'
+      id: string
+      retryId: string
+      attempt: number
+      maxRetries?: number
+      code?: string
+      started: boolean
+    }
+  /** `todo/write` 的整表快照；last-write-wins，视图里永远只有一份（原地换新对象）。 */
+  | { kind: 'todo'; id: string; todos: readonly TodoEntry[] }
+  /** 一次斜杠命令的执行痕迹：`command/run` 开、`command/done` 按 commandId 收尾。 */
+  | {
+      kind: 'command'
+      id: string
+      commandId: string
+      name: string
+      args?: string
+      status: 'running' | 'ok' | 'error'
+      text?: string
+    }
+  /**
+   * 居中标题横线（`──── Compaction ────`）。
+   * `compaction/*` 的载荷形状**还没打到**（docs/gap-shapes.md §七），这里只认 `type`，
+   * 一段连续的 compaction 事件折成一条线。
+   */
+  | { kind: 'divider'; id: string; label: string }
 
 export interface ConversationView {
   readonly sessionId: SessionId
@@ -113,6 +254,12 @@ export interface ConversationView {
   readonly hasOlder: boolean
   /** 往前翻一页。`loadOlder` 的页不带 projections 块。 */
   loadOlder(): Promise<void>
+  /**
+   * 本地产生的反馈行（命令结果、RPC 失败原因等），**不走 host 事件流**。
+   * 命令面板动词的成败回执从这里进会话视图——dispatch 吞 rejection，
+   * 没有它「点了没反应」就回来了。
+   */
+  pushNotice(text: string): void
   subscribe(listener: () => void): Unsubscribe
 }
 
@@ -141,11 +288,90 @@ export interface DshrState {
 
   createWorkspace(path: string, title?: string): Promise<WorkspaceId>
   createSession(input: { cwd: string; workspaceId?: WorkspaceId; agentPreset?: string }): Promise<SessionId>
-  prompt(sessionId: SessionId, text: string): Promise<void>
+  /**
+   * 发一轮提示。`images` 是本地读好的附件（`images.ts` 的 `readImageDraft`），
+   * 字节直接随 `session.prompt` 的 content 发给 host——**没有单独的上传 RPC**，
+   * 限额自查（`checkImageLimits`）是调用方的责任，要在调这个之前做。
+   */
+  prompt(sessionId: SessionId, text: string, images?: readonly ImageDraft[]): Promise<void>
+  /** 从队列里删一条排队消息（`session.updateQueue` 的 `remove`；edit/steer 形状没打到，不做）。 */
+  removeQueuedMessage(sessionId: SessionId, itemId: string): Promise<void>
+  /** 该会话项目下的用户可调技能目录（只读）。 */
+  listSkills(sessionId: SessionId): Promise<SkillEntry[]>
   cancel(sessionId: SessionId): Promise<void>
+
+  /** 拉这个会话的模型目录（同时用 `current` 播种 summary 的 model/provider）。 */
+  listModels(sessionId: SessionId): Promise<SessionModels>
+  /** 切模型。成功后 summary 的 model/provider 跟着变。 */
+  selectModel(sessionId: SessionId, provider: string, model: string): Promise<void>
+
+  /** 部署的预设名册（root-precedence 顺序，上游原样）。 */
+  listPresets(): Promise<readonly AgentPresetEntry[]>
+  /**
+   * 切预设。⚠️ 载荷键是 `agentPreset`，**不是 `presetId`**（实测，docs/gap-shapes.md §八）；
+   * 且只在会话 blank（还没跑过一轮）时允许，否则 host 回 `agent-preset-locked`。
+   */
+  selectPreset(sessionId: SessionId, agentPreset: string): Promise<void>
+
+  /**
+   * 重命名。返回的 `{ title, seq }` 直接落进 title 投影格
+   * （上游注释明说这就是给调用方 settle 用的），不等推送帧。
+   */
+  renameSession(sessionId: SessionId, title: string): Promise<void>
+  /**
+   * 从最近一个已完成轮分叉出一个新会话，返回新 sessionId。
+   * 没有已完成轮时 host 回 `fork-unavailable`（错误原样抛出，调用方负责可读提示）。
+   */
+  forkSession(sessionId: SessionId): Promise<SessionId>
+
+  /** 会话选择对话框的列表——**走 `session.list`**（search 可能被部署关掉，不能依赖）。 */
+  listSessions(): Promise<readonly SessionListEntry[]>
+  /**
+   * `session.search` 的增强过滤：返回匹配内容的 sessionId 集合。
+   * **部署关掉 search 时返回 undefined**（实测：openAt "never" 的部署直接报错），
+   * 调用方据此退回本地过滤——没有它必须照样能用。
+   */
+  searchSessions(query: string): Promise<readonly SessionId[] | undefined>
 
   answerApproval(sessionId: SessionId, outcome: ApprovalOutcome): Promise<void>
   answerQuestion(sessionId: SessionId, answers: unknown): Promise<void>
+
+  // ---- E 批：设置 / 凭证 / provider / 目标 ----
+  // 设计取向：dsh 自带 settings.openDocument / agentPreset.openDocument——
+  // 上游的意图就是「用编辑器改配置文件」，所以这里**只读为主，不做设置编辑器**。
+  // settings.update/replace/mutate 与 credentials.set/unset 会写用户真实的 ~/.dsh，
+  // 这一层**故意不包它们**。
+
+  /** `settings.describe`：全命名空间的脱敏分层值（secret 字段永不下线，上游保证）。 */
+  describeSettings(): Promise<SettingsOverview>
+  /** `settings.openDocument`：把设置文档交给系统编辑器。失败抛错（含 opener 不可用）。 */
+  openSettingsDocument(): Promise<void>
+  /** `llm.providers`：可配置 provider 目录 + 活跃状态。只读。 */
+  listProviders(): Promise<readonly ProviderEntry[]>
+  /** `llm.models`：host 级模型目录（不带会话选择）。只读。
+      ⚠️ 与上面的 `listModels(sessionId)`（`session.models`，会话级、带 current）
+      是两个方法两个 RPC——名字故意岔开，别合。 */
+  listModelCatalog(): Promise<ModelCatalog>
+  /**
+   * 已知 credential ref 的配置状态。ref 清单从 `settings.describe` + `llm.providers`
+   * 的 `apiKeyEnv` 字段发现（credentials 域没有枚举方法，见 credentials.ts 的注释），
+   * 状态来自 `credentials.describe`——**只读，值永不过线**。
+   */
+  describeCredentials(): Promise<readonly CredentialRefState[]>
+
+  /** 当前目标（`goal` 投影的解析结果）；没有目标或形状不符时 undefined。 */
+  goalOf(sessionId: SessionId): GoalInfo | undefined
+  /** `goal.create`：载荷的键是 `objective`（实测逼出来的，不是 content）。 */
+  createGoal(sessionId: SessionId, objective: string): Promise<void>
+  /**
+   * 四个人工干预动词。CAS ref（`{id, revision}`）在**调用那一刻**从投影现读——
+   * 模型的自动轮次会一直推 revision，旧 ref 会撞 GOAL_STALE_REVISION（实测）。
+   * 没有当前目标时抛错。
+   */
+  pauseGoal(sessionId: SessionId): Promise<void>
+  resumeGoal(sessionId: SessionId): Promise<void>
+  completeGoal(sessionId: SessionId): Promise<void>
+  clearGoal(sessionId: SessionId): Promise<void>
 
   dispose(): Promise<void>
 }

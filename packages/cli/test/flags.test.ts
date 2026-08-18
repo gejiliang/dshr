@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { FlagError, parseFlags, DEFAULT_PORT } from '../lib/flags.js'
+import { FlagError, parseFlags } from '../lib/flags.js'
 
 const mainJs = fileURLToPath(new URL('../lib/main.js', import.meta.url))
 
@@ -20,25 +20,17 @@ function runCli(args: string[]): Promise<{ code: number | null; stdout: string; 
   })
 }
 
-test('无参数：默认 tui 形态，默认端口', () => {
-  assert.deepEqual(parseFlags([]), { mode: 'tui', port: DEFAULT_PORT })
-})
-
-test('server 子命令：默认与显式端口', () => {
-  assert.deepEqual(parseFlags(['server']), { mode: 'server', port: DEFAULT_PORT })
-  assert.deepEqual(parseFlags(['server', '--port', '4000']), { mode: 'server', port: 4000 })
-  assert.deepEqual(parseFlags(['server', '--port=4001']), { mode: 'server', port: 4001 })
+test('无参数：默认 tui 形态（端口这个概念已经没有了）', () => {
+  assert.deepEqual(parseFlags([]), { mode: 'tui' })
 })
 
 test('--connect：loopback URL 归一化到 origin', () => {
   assert.deepEqual(parseFlags(['--connect', 'http://127.0.0.1:39081/']), {
     mode: 'tui',
-    port: DEFAULT_PORT,
     connect: 'http://127.0.0.1:39081',
   })
   assert.deepEqual(parseFlags(['--connect=http://localhost:39081']), {
     mode: 'tui',
-    port: DEFAULT_PORT,
     connect: 'http://localhost:39081',
   })
 })
@@ -53,18 +45,12 @@ test('--connect 与 --port 互斥', () => {
 })
 
 test('--resume 可单独用、可与 --connect 组合', () => {
-  assert.deepEqual(parseFlags(['--resume', 'sess-123']), { mode: 'tui', port: DEFAULT_PORT, resume: 'sess-123' })
+  assert.deepEqual(parseFlags(['--resume', 'sess-123']), { mode: 'tui', resume: 'sess-123' })
   assert.deepEqual(parseFlags(['--connect', 'http://127.0.0.1:39081', '--resume', 'sess-123']), {
     mode: 'tui',
-    port: DEFAULT_PORT,
     connect: 'http://127.0.0.1:39081',
     resume: 'sess-123',
   })
-})
-
-test('server 不接受 --connect / --resume', () => {
-  assert.throws(() => parseFlags(['server', '--connect', 'http://127.0.0.1:39081']), FlagError)
-  assert.throws(() => parseFlags(['server', '--resume', 'sess-1']), FlagError)
 })
 
 test('错误旗标与缺值都抛 FlagError', () => {
@@ -87,7 +73,9 @@ test('进程级：--help 退出码 0 且打印用法', async () => {
   const { code, stdout } = await runCli(['--help'])
   assert.equal(code, 0)
   assert.match(stdout, /dshr --connect/)
-  assert.match(stdout, /dshr server/)
+  // `dshr server` 在 2026-08-18 删了：它只是 spawn `dsh web` 的纯透传。
+  assert.doesNotMatch(stdout, /dshr server/)
+  assert.match(stdout, /--connect/)
 })
 
 test('进程级：错误旗标非零退出（2），用法进 stderr', async () => {

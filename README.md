@@ -15,16 +15,21 @@ dshr is that TUI. One process, one pane, one session.
 
 ## The shape
 
+**dshr is a dsh plugin.** dsh is a cordis plugin graph and everything in it is a plugin, so
+the way to add a terminal surface is to contribute a row to that graph — not to write a
+separate program that happens to speak dsh's wire protocol.
+
 ```
- herdr                    │  dshr
- ─────────────────────────┼──────────────────────────────────────────
- workspaces, tabs, panes  │  the conversation inside one pane
- the sidebar of agents    │  reports its own state into that sidebar
-                          │
-                          │  dsh host: sessions, tools, approvals
+ dsh --profile dshr        one process, no port, no socket
+ ────────────────────────────────────────────────────────
+ dsh-base                  agent, tools, sessions, LLM
+ + storage / workspace     the host plane the Web surface also mounts
+ + api-gateway             ctx.apiProxy — the dispatch face
+ + dshr-app  ◄─────────────@dshr/bundle: startSurface() mounts the ink TUI
+                           over an in-process carrier (no HTTP, no WebSocket)
 ```
 
-Point herdr's shell at dshr and every new pane becomes a dsh session:
+Run it inside herdr and each pane is a dsh session:
 
 ```toml
 # ~/.config/herdr/config.toml
@@ -37,8 +42,9 @@ Three things fall out of building it this way:
 - **The workspace already exists.** herdr has spent its life on tabs, panes, splits and a
   live agent sidebar. dshr renders one pane's worth of content and nothing else. An earlier
   version reimplemented all of herdr beside herdr; it was deleted (`git log -- packages/shell`).
-- **The server already exists.** dsh's `web` profile runs a complete host plane, so workspace
-  registry, session persistence, approvals and subagents come for free.
+- **The host plane already exists.** The profile mounts the same host rows dsh's own Web
+  surface mounts, so workspace registry, session persistence, approvals and subagents come
+  for free — in the same process, reached through `ctx.apiProxy` rather than a socket.
 - **Agent state is authoritative, not scraped.** Plugins that wrap a foreign TUI have to parse
   its status line and break when it changes. dshr learns `idle` / `working` / `blocked` from
   the host's own event stream and reports it to herdr directly — no watcher process, nothing
@@ -46,7 +52,11 @@ Three things fall out of building it this way:
 
 ## Status
 
-**117 tests. The whole stack runs against a real dsh host, inside a real herdr pane.**
+**192 tests. The TUI mounts inside `dsh --profile dshr` — one process, no port, no socket.**
+
+dshr calls **26 of dsh's 52 RPC methods**, handles **all 19** downlink frame types, and folds
+**18 of 39** session event kinds. What's missing and why — including three things that
+*can't* be reached on this deployment — is [`docs/coverage.md`](docs/coverage.md).
 
 | | | |
 |---|---|---|
@@ -55,9 +65,9 @@ Three things fall out of building it this way:
 | `@dshr/state` | ✅ | frames folded into a renderable model — 16 tests |
 | `@dshr/tui` | ✅ | the session surface, in opencode's shape — [`docs/opencode-port.md`](docs/opencode-port.md) |
 | `@dshr/herdr` | ✅ | reports session state to herdr's sidebar — 6 tests |
-| `@dshr/bundle` | ✅ | the dsh profile bundle — 12 tests, `--dump-config` composes clean |
-| `dshr` (cli) | ✅ | one pane, one session |
-| `@dshr/orchestrate` | ⚠️ | orchestration verbs, tested, **but nothing calls them** — see below |
+| `@dshr/surface` | ✅ | mounts the TUI over any carrier — shared by the plugin and `--connect` |
+| `@dshr/bundle` | ✅ | the cordis plugin row (`dshr-app`) — `startSurface` mounts the TUI in-process |
+| `dshr` (cli) | ✅ | 399 lines: set up the profile, hand the terminal to `dsh` |
 
 ## Install
 
@@ -76,15 +86,53 @@ Both files, and the one trap in them, are in [`docs/using-it.md`](docs/using-it.
 ## Use
 
 ```sh
-dshr                       # a new session in the current directory
-dshr --resume <sessionId>  # reopen an existing one
+dshr                       # dsh --profile dshr — one process, no port
+dshr --resume <sessionId>  # reopen an existing session
 dshr --connect <url>       # attach to a host someone else started
-dshr server                # just the host, no UI
 ```
+
+`dshr` with no flags materialises `$DSH_HOME/profiles/dshr/` (idempotent) and hands the
+terminal to `dsh --profile dshr`; the TUI mounts inside that process. `--connect` is the one
+path that stays out of the plugin graph — attaching to someone else's host has no use for a
+local host plane, and mounting one would fight over the same `$DSH_HOME/sessions`.
 
 Usually you won't type any of these: with `default_shell = "dshr"`, opening a herdr pane is
 opening a session. Closing the pane only detaches — dsh persists every session, so
 `dshr --resume` picks it back up.
+
+### Keys
+
+Copied from opencode, verified against a real opencode 1.18.18 capture
+([`docs/opencode-dialogs.md`](docs/opencode-dialogs.md)):
+
+| key | what |
+|---|---|
+| `enter` | send · `shift+enter` newline |
+| `ctrl+p` | **command palette** — everything below is reachable from here |
+| `tab` | cycle the agent preset in place (`standard` → `code` → `minimal` → `cordis`) |
+| `esc` | interrupt the current turn · close a dialog |
+| `ctrl+c` | quit |
+
+Inside the session-list dialog, `ctrl+r` renames.
+
+### What the palette can do
+
+Switch model · switch session · switch agent preset · fork · rename ·
+open/inspect settings · see which credentials are configured · browse providers and the
+host model catalog · create/pause/resume/complete/clear a goal.
+
+**Everything in the palette does something.** Commands that can't work right now are hidden
+or answer with a readable reason (`fork` needs a completed turn; the host locks the agent
+preset after the first turn) — there are no decorative entries.
+
+### What the transcript now shows
+
+Beyond the conversation itself: retries (`↳ Retrying (attempt 1/2) · RATE_LIMIT`, in red —
+before this, a retrying gateway looked like a freeze), todo lists, slash-command runs,
+subagent tasks, context compaction, and queued messages.
+
+Coverage of dsh's surface — what's wired, what isn't, and why — is tracked in
+[`docs/coverage.md`](docs/coverage.md); re-count it with `sh tools/coverage.sh`.
 
 ## Verifying it
 
@@ -160,11 +208,17 @@ remote client's capability surface is genuinely smaller.
 
 ## Not done yet
 
-- **Orchestration is not reachable.** `@dshr/orchestrate` implements and tests spawn / send /
-  wait / cancel / list with a configurable hard cap, but nothing calls it. Running inside herdr,
-  orchestration is arguably [herdgent](https://github.com/gejiliang/herdgent)'s job, and this
-  package may simply be deleted.
+- **You can't step into a subagent.** The transcript shows the subagent tool row
+  (`✓ General Task — …`), but `subagent.list` / `history` / `prompt` / `interrupt` aren't wired,
+  so you can't see what it did or talk to it. Blocked on a real problem: measured
+  `host/session-added` carries no `parentSessionId` or `origin`, so parent↔child can't be linked
+  ([`docs/gap-shapes.md`](docs/gap-shapes.md) §五).
 - **Remote attach.** Loopback only, on purpose — see above.
+
+Orchestration used to be here (`@dshr/orchestrate`) and was **deleted** on 2026-08-17: a TUI
+client shouldn't own orchestration verbs. That's [herdgent](https://github.com/gejiliang/herdgent)'s
+job, and dsh already exposes orchestration as model tools (`subagent`, `workflow`, `ralph`,
+`list_agents`, `send_message`, `interrupt_agent`) — the client's job is to render them.
 
 ## License
 

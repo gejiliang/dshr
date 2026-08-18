@@ -69,15 +69,25 @@ git commit -m "…"                         # ✅
 `@dshr/protocol` 是唯一知道 HTTP 与 WebSocket 存在的地方。
 这两条不是风格偏好，是「能不能测」的分界。
 
-## 编排层：只提供动词
+## dshr 是 dsh 的 TUI 客户端插件——编排不在这里
 
+**遵循 dsh「一切皆插件」的逻辑**：往 dsh 加一个 surface 的办法是往插件图里贡献一行
+（`@dshr/bundle` 的 `dshr-app`），不是在外面另写一个会说它线协议的程序。
+
+**编排不是客户端的活。** 2026-08-17 删掉了 `@dshr/orchestrate`（spawn/send/wait/cancel/list
++ 硬上限，555 行 13 个测试，没有任何入口调用它）。理由是层次不是重复：
+
+- 编排是 herdgent 的岗位
+- **dsh 自己就把编排暴露成模型工具**——`subagent` / `subagent_fork` / `workflow` /
+  `ralph` / `list_agents` / `send_message` / `interrupt_agent`（实测 25 个工具里的 7 个）。
+  客户端的本分是**把它们画出来**
+
+要看那个包长什么样：`git log -- packages/orchestrate`。
+
+**「只提供动词」这条纪律仍然有效**，现在管的是命令注册表：
 代码里出现 `Role` / `Workflow` / `Protocol` / `Template` 这类**类型定义**就是越界。
 谁是实现谁是评审、怎么配对，全部活在 prompt 与 skill 里，dshr 不认识这些概念。
 理由见 herdgent 的 AGENTS.md：SPQR v2 的 13k 行死在把语义固化成了类型。
-
-**spawn 必须有硬上限且上限本身可配**：默认值可覆盖，运行时可调，工具里再钉一个绝对上界。
-存「人显式设过的值」，别把启动时写回的值当成人设的——两者无法区分会导致
-改默认值对所有跑过的仓库静默无效（herdgent 实测 29 条记录有 24 条钉着旧默认值）。
 
 ## 提交
 

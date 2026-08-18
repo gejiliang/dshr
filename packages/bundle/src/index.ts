@@ -17,11 +17,16 @@ import type { DshrStartup } from './startup.js'
 export const name = 'dshr-app'
 
 /**
- * Plugin-level injection: none. The Loader row carries `inject:
- * [dshrStartup]` so its lazy config expressions resolve only after
- * `dshr-startup` has provided the parsed flags.
+ * Plugin-level injection: `apiProxy` — the host's dispatch face, provided by
+ * the `api-gateway` row (`@deepseek-ai/dsh-host-apiproxy`). The surface talks
+ * to the host plane through it, in-process, with no port and no socket.
+ *
+ * The Loader row separately carries `inject: [dshrStartup]` so its lazy config
+ * expressions resolve only after `dshr-startup` has provided the parsed flags.
+ * Row-level and plugin-level injection are different lists on purpose: the
+ * former gates config evaluation, the latter gates the plugin body.
  */
-export const inject: string[] = []
+export const inject: string[] = ['apiProxy']
 
 /** Runtime service holding the resolved invocation values. */
 export const DSHR_RUNTIME_SERVICE = 'dshrRuntime'
@@ -79,9 +84,44 @@ export interface SurfaceOptions {
  * @returns the mounted surface's handle, or `undefined` while no surface exists.
  */
 export async function startSurface(ctx: Context, options: SurfaceOptions): Promise<SurfaceHandle | undefined> {
-  void ctx
-  void options
-  return undefined
+  // `--connect <url>` 明确要求接一台别人的 host：那条路走网络 carrier，不在这里。
+  if (options.runtime.connect !== undefined) return undefined
+
+  // 进程内 carrier：`ctx.apiProxy` 由 `api-gateway` 行提供（插件级 inject 已声明）。
+  // 上游注释：`new InProcessApiClient(toFetchHandler(api))` never touches the network。
+  if (ctx.apiProxy === undefined) {
+    // 说人话，别抛 TypeError：profile 少了一行是最容易犯的错，而
+    // `--dump-config` 看不出来（组合阶段不检查服务依赖，见 docs/profile.md）。
+    throw new Error(
+      'dshr: ctx.apiProxy is missing — the profile has no `api-gateway` row ' +
+        "(name: '@deepseek-ai/dsh-host-apiproxy'). See docs/profile.md.",
+    )
+  }
+  const { createInProcessClient } = await import('@dshr/protocol')
+  const client = createInProcessClient({ api: ctx.apiProxy })
+  await client.connect()
+
+  const description = client.state.status === 'ready' ? client.state.host : undefined
+  const { mountSurface } = await import('@dshr/surface')
+  const surface = await mountSurface({
+    client,
+    ...(options.runtime.resume !== undefined ? { resume: options.runtime.resume } : {}),
+    ...(description?.model !== undefined ? { model: description.model } : {}),
+    ...(description?.provider !== undefined ? { provider: description.provider } : {}),
+  })
+
+  // 界面退出（Ctrl-C / 面板里的 Exit）就该收掉整棵树——一个 TUI surface 的进程
+  // 没有在界面没了之后继续活着的理由。用 dsh 自己的 `appExit`，别自己 `process.exit`：
+  // 那会跳过 Loader 的拆除，把别的行的收尾一起吞掉。
+  void surface.waitUntilExit().then((code) => {
+    ctx.appExit?.(code)
+  })
+
+  return {
+    async close() {
+      await surface.close()
+    },
+  }
 }
 
 /**
@@ -99,11 +139,22 @@ export function apply(ctx: Context, config: DshrAppConfig): void {
     ...config.resume !== undefined && { resume: config.resume },
   }
   ctx.provide(DSHR_RUNTIME_SERVICE, runtime)
-  void startSurface(ctx, { runtime })
+
+  // ⚠️ **必须接住**。`startSurface` 现在真的会做事（建进程内 carrier、连 host），
+  // 也就真的会失败。裸的 `void startSurface(...)` 会把失败变成 unhandledRejection——
+  // 在 Node 里那是**默认杀进程**的，而且报错栈里看不出是 dshr 干的。
+  // 踩过：加了 apiProxy 守卫之后，bundle 的单测立刻以「测试结束后的异步活动」形式暴露了这条。
+  void startSurface(ctx, { runtime }).catch((error: unknown) => {
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error)
+    console.error(`dshr: terminal surface failed to mount: ${message}`)
+  })
   const print = (): void => {
-    const target = runtime.connect ?? `${runtime.host}:${runtime.port}`
+    // ⚠️ 只在**不挂界面**的时候印。挂了界面就闭嘴——ink 接管了这块屏幕，
+    // 往同一个终端 `console.log` 会把画面撕开（那行会留在 ink 的渲染区里，
+    // 下一帧擦不掉）。`--connect` 那条路不在这里挂界面，才需要这行告诉人它起来了。
+    if (runtime.connect === undefined) return
     const suffix = runtime.resume === undefined ? '' : `, resume ${runtime.resume}`
-    console.log(`dshr: host plane settled (${target}${suffix}); terminal surface not yet mounted`)
+    console.log(`dshr: host plane settled; surface attaches to ${runtime.connect}${suffix}`)
   }
   const settled = ctx.get('loader')?.await() as Promise<unknown> | undefined
   if (settled === undefined) print()

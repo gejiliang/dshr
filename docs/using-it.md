@@ -48,7 +48,7 @@ QP_API_KEY="$(node -p "require(process.env.HOME + '/.pi/agent/models.json').prov
 export QP_API_KEY
 ```
 
-`dshr` 拉起的 host 是子进程、会继承环境，所以 `dshr` 和 `dshr server` 都覆盖到了。
+`dshr` 拉起的 dsh 是子进程、会继承环境，所以两条路都覆盖到了。
 
 三个坑，都是踩出来的：
 
@@ -88,12 +88,14 @@ default_shell = "dshr"
 ### 手敲的用法（不在 herdr 里，或者要指定会话时）
 
 ```sh
-dshr                       # 在当前目录开一个新会话
+dshr                       # 跑 dsh --profile dshr：一个进程、零端口、界面在插件里
 dshr --resume <sessionId>  # 打开某个已存在的会话
-dshr --connect <url>       # attach 到别人起好的 host
-dshr --port 39080          # 指定 host 端口（默认 39080）
-dshr server                # 只起 host、不开 TUI
+dshr --connect <url>       # attach 到别人起好的 host（这条才走 HTTP）
 ```
+
+裸跑时 `dshr` 会幂等地把 `$DSH_HOME/profiles/dshr/` 准备好（软链本仓库的
+`@dshr/bundle`），然后把终端交给 `dsh --profile dshr`——**界面在那个进程里挂起来，
+不开端口、不连 socket**。`cordis.patch.yml` 是你自己的 patch 层，已存在就不覆盖。
 
 不在 herdr 里跑时，状态上报自动关闭（判据是有没有 `HERDR_PANE_ID`），其余一模一样。
 
@@ -130,12 +132,15 @@ dshr server                # 只起 host、不开 TUI
 | 侧栏里看不到这个 pane 是 agent | 只在 herdr 里跑才上报（判据是 `HERDR_PANE_ID`）。手敲 `dshr` 在普通终端里是正常没有的 |
 | 界面起来但一提问就报错 | `~/.dsh/settings.yaml` 没配，或 `QP_API_KEY` 没 export |
 | 整个界面塌成一列 | 终端没报尺寸；已有 80×24 兜底，还塌就把终端信息发我 |
-| 起不来、卡在等 host | 看 `/tmp/dshr-host-<port>.log`，那是它拉起的 host 的输出 |
+| 起不来 | 先单独跑一次 `DSH_HOME=<你的> dsh --profile dshr --dump-config` 看图组不组得出来；**再真跑一次**——组合阶段不检查服务依赖，dump 干净 ≠ 起得来（见 `profile.md`） |
 | 想确认不是我在吹 | `node tools/verify.mjs` 和 `expect -f tools/verify-tty.exp` |
 
 ## 六、还不能用的东西
 
-- **编排动词还没接进产品**。`@dshr/orchestrate` 的 spawn/send/wait/cancel/list 写好也测好了，
-  但没有任何入口能调到它。现在 dshr 跑在 herdr 里，编排本来就是 herdgent 的活——
-  **这个包很可能该直接删掉**。
+- **进不去子 agent 的会话**。对话里能看见 `✓ General Task — …` 这行，但
+  `subagent.list` / `history` / `prompt` / `interrupt` 没接，看不到它做了什么、也发不了话给它。
+  卡在实测 `host/session-added` 不带 `parentSessionId`／`origin`，父子关联建不起来。
+- **`--connect` 那条路仍然走 HTTP+WebSocket**（而且只接 loopback）。这是**故意的**：
+  attach 到别人的 host 时不该再挂一套本地 host plane，那套用不上，还会和目标 host
+  抢同一个 `$DSH_HOME/sessions`。裸跑（插件路）已经是零端口零 socket 了。
 - **远程 attach 没做**。host 只绑 loopback，跨机器要 dshr 自带认证层，现在没有。

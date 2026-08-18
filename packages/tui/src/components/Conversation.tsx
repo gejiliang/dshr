@@ -2,6 +2,7 @@ import { useEffect, useReducer } from 'react'
 import { Box, Text } from 'ink'
 import type { ConversationItem, ConversationView } from '@dshr/state'
 import { AssistantMessage, ErrorMessage, NoticeMessage, UserMessage } from './MessageRow.js'
+import { CommandRow, DividerRow, RetryRow, TodoRow } from './AwarenessRows.js'
 import { ReasoningRow } from './ReasoningRow.js'
 import { ToolRow } from './ToolRow.js'
 import { TurnRow } from './TurnRow.js'
@@ -17,7 +18,7 @@ type Entry = ConversationItem | OlderHint
 
 const OLDER_HINT: OlderHint = { kind: 'older-hint', id: '__older-hint__' }
 
-export function ItemRow({ item, first, preset }: { item: ConversationItem; first?: boolean; preset?: string }) {
+export function ItemRow({ item, first, preset, width }: { item: ConversationItem; first?: boolean; preset?: string; width?: number }) {
   switch (item.kind) {
     case 'user':
       return first === undefined ? <UserMessage item={item} /> : <UserMessage item={item} first={first} />
@@ -33,22 +34,51 @@ export function ItemRow({ item, first, preset }: { item: ConversationItem; first
       return <ErrorMessage item={item} />
     case 'notice':
       return <NoticeMessage item={item} />
+    case 'retry':
+      return <RetryRow item={item} />
+    case 'todo':
+      return <TodoRow item={item} />
+    case 'command':
+      return <CommandRow item={item} />
+    case 'divider':
+      return width === undefined ? <DividerRow item={item} /> : <DividerRow item={item} width={width} />
   }
 }
 
-function EntryRow({ entry, first, preset }: { entry: Entry; first?: boolean; preset?: string }) {
+function EntryRow({ entry, first, preset, width }: { entry: Entry; first?: boolean; preset?: string; width?: number }) {
   if (entry.kind === 'older-hint') {
     return <Text color={theme.textMuted}>⋮ earlier history - loadOlder()</Text>
   }
-  return <ItemRow item={entry} {...(first !== undefined ? { first } : {})} {...(preset !== undefined ? { preset } : {})} />
+  return (
+    <ItemRow
+      item={entry}
+      {...(first !== undefined ? { first } : {})}
+      {...(preset !== undefined ? { preset } : {})}
+      {...(width !== undefined ? { width } : {})}
+    />
+  )
 }
 
-/** 单个 entry 的近似行数（尾部窗口预算用；宽度按正文列宽估计）。 */
+/**
+ * 一个条目**实际**占多少行——尾部窗口的预算靠它。
+ *
+ * ⚠️ **必须把 `marginTop={1}` 算进去。** 除首条用户消息外，
+ * 每个行组件外层 Box 都有 `marginTop={1}`（MessageRow / ToolRow / ReasoningRow /
+ * AwarenessRows / TurnRow 全都有），估算漏掉它就是**每条少算一行**。
+ *
+ * 踩过：150×45 下连发十轮，30 个条目少算 30 行，预算 37 行而实际渲染 ~67 行，
+ * 整个 row 比终端高 → 终端滚动 → **右侧信息列（矮、贴顶）被顶出画面，看起来像凭空消失**。
+ * 当时先怀疑是宽度被撑开，钉死列宽没用——是高度。
+ *
+ * 宁可高估：高估只是少显示一条历史，低估会毁掉整个布局。
+ */
 function entryRows(entry: Entry, wrapWidth: number): number {
   if (entry.kind === 'older-hint') return 1
-  if (entry.kind === 'user') return 2 + wrappedLineCount(entry.text, wrapWidth)
-  if (entry.kind === 'assistant') return wrappedLineCount(entry.text, wrapWidth)
-  return 1
+  const margin = 1
+  if (entry.kind === 'user') return margin + 2 + wrappedLineCount(entry.text, wrapWidth)
+  if (entry.kind === 'assistant') return margin + wrappedLineCount(entry.text, wrapWidth)
+  if (entry.kind === 'todo') return margin + entry.todos.length + 1
+  return margin + 1
 }
 
 /** 消息流。 */
@@ -120,6 +150,7 @@ export function Conversation({ view, maxItems = 200, maxRows, contentWidth, pres
           entry={entry}
           {...(index === firstUserIndex ? { first: true } : {})}
           {...(preset !== undefined ? { preset } : {})}
+          {...(contentWidth !== undefined ? { width: contentWidth } : {})}
         />
       ))}
     </Box>

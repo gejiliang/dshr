@@ -122,7 +122,14 @@ node 半边在**桥接或 upgrade 之前**校验每一个 `/api` 下的入口：
 > **这条栅栏不是认证。** Web carrier 没有认证层，`dsh web --host 0.0.0.0` 是**故意**不支持的。
 > dshr 要做远程 attach，**必须自己加认证**，不能靠把 `trustedHosts` 放宽——那只是可达性策略。
 
-## 三、方法全表（`RpcMethodMap`，51 个）
+## 三、方法全表（`RpcMethodMap`，**52 个**）
+
+> 这里原先写的是「51 个」，**数错了**——底下那张表自己列的就是 52 条，
+> 上游 `RpcMethodMap` 也是 52 条。数字以类型为准，不以这行标题为准：
+>
+> ```sh
+> sh tools/coverage.sh    # 从 rpc-map.d.ts 直接数，并算出 dshr 调到了几个
+> ```
 
 wire 路径就是 map 的键：`POST /api/session.list`。
 

@@ -32,6 +32,8 @@
     "test": "node --test test/*.test.ts"
   },
   "dependencies": {
+    "@dshr/protocol": "workspace:*",
+    "@dshr/surface": "workspace:*",
     "commander": "^15.0.0",
     "@deepseek-ai/dsh-cmdline": "0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1"

@@ -5,7 +5,8 @@
     { "path": "packages/herdr" },
     { "path": "packages/state" },
     { "path": "packages/tui" },
-    { "path": "packages/orchestrate" },
-    { "path": "packages/cli" }
+    { "path": "packages/surface" },
+    { "path": "packages/cli" },
+    { "path": "packages/bundle" }
   ]
 }

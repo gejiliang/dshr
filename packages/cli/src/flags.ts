@@ -4,9 +4,7 @@
  * 形态见 docs/profile.md 的「三种进程形态」：
  *   dshr                        连本机 host；没有就自己拉一个，然后开 TUI
  *   dshr --connect <url>        只开 TUI，attach 到已有 host（**只接受 loopback**）
- *   dshr --port <n>             指定本机 host 端口
  *   dshr --resume <sessionId>   直接打开某个已存在的会话
- *   dshr server [--port <n>]    只起 host，不开 TUI
  */
 
 export const DEFAULT_PORT = 39080
@@ -14,11 +12,9 @@ export const DEFAULT_PORT = 39080
 export const USAGE = `dshr — dsh 的终端 surface
 
 用法:
-  dshr                        连本机 host（没有就自己拉起），开 TUI
+  dshr                        跑 dsh --profile dshr：一个进程、零端口、界面在插件里
   dshr --connect <url>        attach 到已在跑的 host（目前只接受 loopback 地址）
-  dshr --port <n>             本机 host 端口（默认 ${DEFAULT_PORT}）
   dshr --resume <sessionId>   启动后直接打开这个已存在的会话
-  dshr server [--port <n>]    只起 host，不开 TUI
   dshr --help                 显示本帮助
 `
 
@@ -28,11 +24,9 @@ export class FlagError extends Error {
 
 export type ParsedFlags =
   | { readonly mode: 'help' }
-  | { readonly mode: 'server'; readonly port: number }
   | {
       readonly mode: 'tui'
       readonly connect?: string
-      readonly port: number
       readonly resume?: string
     }
 
@@ -80,21 +74,13 @@ function takeValue(argv: readonly string[], index: number, inline: string | unde
 }
 
 export function parseFlags(argv: readonly string[]): ParsedFlags {
-  let server = false
   let help = false
   let connect: string | undefined
-  let port: number | undefined
   let resume: string | undefined
 
   let i = 0
   while (i < argv.length) {
     const arg = argv[i] ?? ''
-    if (arg === 'server') {
-      if (server) throw new FlagError('server 子命令给了两次')
-      server = true
-      i += 1
-      continue
-    }
     if (arg === '--help' || arg === '-h') {
       help = true
       i += 1
@@ -111,13 +97,6 @@ export function parseFlags(argv: readonly string[]): ParsedFlags {
         i = taken.next
         break
       }
-      case '--port': {
-        const taken = takeValue(argv, i, inline, '--port')
-        if (port !== undefined) throw new FlagError('--port 给了两次')
-        port = parsePort(taken.value)
-        i = taken.next
-        break
-      }
       case '--resume': {
         const taken = takeValue(argv, i, inline, '--resume')
         if (resume !== undefined) throw new FlagError('--resume 给了两次')
@@ -131,17 +110,8 @@ export function parseFlags(argv: readonly string[]): ParsedFlags {
   }
 
   if (help) return { mode: 'help' }
-  if (connect !== undefined && port !== undefined) {
-    throw new FlagError('--connect 与 --port 互斥：attach 到已有 host 时端口由 URL 决定')
-  }
-  if (server) {
-    if (connect !== undefined) throw new FlagError('server 子命令不接受 --connect（它自己就是 host）')
-    if (resume !== undefined) throw new FlagError('server 子命令不接受 --resume（它不开 TUI）')
-    return { mode: 'server', port: port ?? DEFAULT_PORT }
-  }
   return {
     mode: 'tui',
-    port: port ?? DEFAULT_PORT,
     ...(connect !== undefined ? { connect } : {}),
     ...(resume !== undefined ? { resume } : {}),
   }

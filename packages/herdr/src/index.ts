@@ -57,7 +57,8 @@ function run(args: readonly string[]): Promise<boolean> {
 
 export interface ReporterOptions {
   readonly state: DshrState
-  readonly sessionId: SessionId
+  /** 当前会话。传 getter 则切会话（C 批的 Switch session / fork）后跟着报新的。 */
+  readonly sessionId: SessionId | (() => SessionId)
   /** 覆盖 pane id（测试用）。默认读 `HERDR_PANE_ID`。 */
   readonly paneId?: string
   /** 覆盖命令执行器（测试用）。 */
@@ -82,16 +83,22 @@ export function startReporter(options: ReporterOptions): Reporter {
   }
 
   const base = [paneId, '--source', SOURCE_ID, '--agent', AGENT_LABEL]
+  const sessionIdOf =
+    typeof options.sessionId === 'function' ? options.sessionId : () => options.sessionId as SessionId
   let last: HerdrState | null = null
   let lastMessage: string | undefined
+  let reportedSession: SessionId | undefined
   let disposed = false
-
-  // 会话身份先报一次：侧栏据此把 pane 和 dsh 会话对应起来。
-  void exec(['pane', 'report-agent-session', ...base, '--agent-session-id', String(options.sessionId)])
 
   const push = (): void => {
     if (disposed) return
-    const summary = options.state.sessions.get(options.sessionId)
+    const sessionId = sessionIdOf()
+    // 会话身份变化就重报一次：侧栏据此把 pane 和 dsh 会话对应起来。
+    if (sessionId !== reportedSession) {
+      reportedSession = sessionId
+      void exec(['pane', 'report-agent-session', ...base, '--agent-session-id', String(sessionId)])
+    }
+    const summary = options.state.sessions.get(sessionId)
     if (summary === undefined) return
     const next = toHerdrState(summary.status)
     // blocked 时把「在等什么」写进 message，侧栏一眼能看出该去处理哪个。

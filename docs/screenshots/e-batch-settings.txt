@@ -1,0 +1,45 @@
+      Settings                                                                                     esc
+                                                                                                              New session
+       Search
+                                                                                                              /private/tmp/dshr-e-shot
+      Namespaces
+      ui-onboarding applies live                                                                 rev 0
+      web-search-deepseek applies live · 0/1 secrets set                                         rev 0
+      llm-deepseek applies live                                                                  rev 0
+      ui-theme applies live                                                                      rev 0
+      locale applies live                                                                        rev 0
+      ui-conversation applies live                                                               rev 0
+      agent-presets applies live                                                                 rev 0
+      agent-loop applies live                                                                    rev 0
+      shell applies live                                                                         rev 0
+      permission applies live                                                                    rev 0
+      llm-pi-ai applies live · user overrides                                                    rev 0
+
+      Read-only view · edit in your editor with the “Open settings” command
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Ask anything... "Fix a TODO in the codebase"
+  ┃
+  ┃  Standard · mock-model mock
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀    • dshr 0.0.0
+                                                                           enter send  shift+enter newline
+/private/tmp/dshr-e-shot                                                                                                       • connected  mock-model

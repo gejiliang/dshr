@@ -70,3 +70,41 @@ test('logo：左右两半、加粗右半、4 行方块字', async (t) => {
   assert.ok(out.includes(fg(theme.text)), '右半 text')
   app.unmount()
 })
+
+test('logo 拼的是 dshr —— 钉住两次被人读错的那两处（回归）', async (t) => {
+  t.after(cleanup)
+  // 这个 logo 返工过两次，**两次都是人一眼读错才发现的**，两次都不是「字符写错了」：
+  //
+  //   第一稿 → 被读成 `oshr`：d 只有闭合方框、没有升部。上游字库里
+  //            `d` = `o` + 右立柱上方一个凸起，那一点就是 d 与 o 的全部区别。
+  //   第二稿 → 被读成 `dsbc`：h 的碗底用了上游 n 的暗色中段 `~~`，暗色在终端里
+  //            几乎看不出来，碗看着是闭合的（= b）；r 带一整条底边，四面围起来（= c）。
+  //
+  // 所以这里断言的不是「字符长什么样」，而是**让它读得出来的那几条几何性质**：
+  // 升部在不在、碗开不开、底边有没有多画。换字形时这些必须仍然成立。
+  //
+  // ⚠️ 单测钉不住「读不读得出来」——那只能靠眼睛：`node tools/logo.mjs`。
+  const app = render(h(Logo, {}))
+  await flush()
+  const stripped = (app.lastFrame() ?? '').replaceAll('\r', '').replace(/\u001b\[[0-9;]*m/g, '')
+  const rows = stripped.split('\n').map((r) => r.padEnd(19, ' '))
+  // 字形槽：每个 4 宽、空一格 —— d[0..3] s[5..8] h[10..13] r[15..18]
+  const slot = (row: number, start: number): string => (rows[row] ?? '').slice(start, start + 4)
+  const riser = (ch: string): boolean => ch === '▄' || ch === '█'
+
+  assert.strictEqual(slot(1, 0), '█▀▀█', 'd 的碗')
+  assert.ok(riser(slot(0, 0)[3] ?? ' '), `d 的升部必须在右立柱正上方，否则就是 o：${JSON.stringify(rows[0])}`)
+  assert.ok(riser(slot(0, 10)[0] ?? ' '), `h 的升部必须在左立柱正上方：${JSON.stringify(rows[0])}`)
+
+  // h 的碗底必须**真开口**（两条腿）。用暗色糊过去就会被读成 b。
+  assert.strictEqual(slot(3, 10), '▀  ▀', 'h 的底部必须是两条腿，中间不能有任何东西')
+
+  // r 的肩下面什么都没有；多画一条底边就围成 c 了。
+  assert.strictEqual(slot(3, 15).trimEnd(), '▀', 'r 的底边只留立柱那一格')
+  assert.strictEqual(slot(2, 15).trimEnd(), '█', 'r 的肩下只有立柱')
+
+  // 四个字形不能有两个同形，否则读出来必然是别的词。
+  assert.notStrictEqual(slot(1, 0), slot(1, 5), 'd 与 s 不能同形')
+  assert.notStrictEqual(slot(1, 0), slot(1, 10), 'd 与 h 不能同形')
+  app.unmount()
+})

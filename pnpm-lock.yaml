@@ -50,6 +50,12 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.1
         version: 3.18.1
+      '@dshr/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@dshr/surface':
+        specifier: workspace:*
+        version: link:../surface
       commander:
         specifier: ^15.0.0
         version: 15.0.0
@@ -75,6 +81,9 @@ importers:
       '@dshr/state':
         specifier: workspace:*
         version: link:../state
+      '@dshr/surface':
+        specifier: workspace:*
+        version: link:../surface
       '@dshr/tui':
         specifier: workspace:*
         version: link:../tui
@@ -98,12 +107,6 @@ importers:
         specifier: workspace:*
         version: link:../state
 
-  packages/orchestrate:
-    dependencies:
-      '@dshr/protocol':
-        specifier: workspace:*
-        version: link:../protocol
-
   packages/protocol:
     dependencies:
       '@deepseek-ai/dsh-host-apiproxy':
@@ -125,6 +128,31 @@ importers:
       '@dshr/protocol':
         specifier: workspace:*
         version: link:../protocol
+
+  packages/surface:
+    dependencies:
+      '@dshr/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@dshr/state':
+        specifier: workspace:*
+        version: link:../state
+      '@dshr/tui':
+        specifier: workspace:*
+        version: link:../tui
+      ink:
+        specifier: ^6.0.0
+        version: 6.8.0(@types/react@19.2.18)(react@19.2.8)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      ink-testing-library:
+        specifier: ^4.0.0
+        version: 4.0.0(@types/react@19.2.18)
 
   packages/tui:
     dependencies:

@@ -24,6 +24,7 @@
     "@dshr/herdr": "workspace:*",
     "@dshr/protocol": "workspace:*",
     "@dshr/state": "workspace:*",
+    "@dshr/surface": "workspace:*",
     "@dshr/tui": "workspace:*",
     "ink": "^6.0.0",
     "react": "^19.0.0"

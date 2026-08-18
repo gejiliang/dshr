@@ -2,6 +2,12 @@ import { useRef, useState } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import { theme } from '../theme.js'
 
+/** composer 上挂着的一张待发图（字节在 state 层的 ImageDraft 里，这里只拿展示要的）。 */
+export interface ComposerAttachment {
+  readonly name: string
+  readonly bytes: number
+}
+
 export interface ComposerProps {
   onSubmit: (text: string) => void
   disabled?: boolean
@@ -12,12 +18,22 @@ export interface ComposerProps {
   preset?: string
   model?: string
   provider?: string
+  /**
+   * 会话里见过 `plan/mode` 事件（形状还没打到，只有「发生过」一个比特——
+   * 在模式位留一个 muted 的 `· plan/mode` 标记，不断言是进还是出）。
+   */
+  planModeSeen?: boolean
   /** 输入面板宽度（列）。缺省用终端宽度（减去右侧信息列后由外层传入）。 */
   width?: number
   /** agent 在跑时，快捷键提示行的左侧换成 `esc interrupt`（opencode 的运行态提示）。 */
   working?: boolean
   /** esc 中断当前轮。 */
   onInterrupt?: () => void
+  /**
+   * `tab` **就地循环** agent preset，不弹对话框（opencode 实测：`Build` ↔ `Plan`
+   * 在 composer 那行原地变，见 docs/opencode-dialogs.md 键位一节）。不传则 tab 被吞掉。
+   */
+  onCyclePreset?: () => void
   /**
    * **按键到达那一刻**再问一次「现在该不该收这个键」。
    *
@@ -30,6 +46,12 @@ export interface ComposerProps {
    * 不传则只看 `disabled`。
    */
   acceptsKey?: () => boolean
+  /** 已挂上的待发图片；有就画在输入框上方，并能用 ctrl+u 一次清空。 */
+  attachments?: readonly ComposerAttachment[]
+  /** 清空全部附件（ctrl+u，只在有附件时收这个键）。 */
+  onClearAttachments?: () => void
+  /** 一条要用户看见的信息（如附件超限被拒的理由），画在输入框上方，error 色。 */
+  notice?: string
 }
 
 export type ComposerHint = 'command' | 'reference' | null
@@ -120,10 +142,15 @@ export function Composer({
   preset,
   model,
   provider,
+  planModeSeen = false,
   width: widthProp,
   working = false,
   onInterrupt,
+  onCyclePreset,
   acceptsKey,
+  attachments = [],
+  onClearAttachments,
+  notice,
 }: ComposerProps) {
   const { stdout } = useStdout()
   const liveColumns = stdout !== undefined && stdout.columns > 0 ? stdout.columns : 0
@@ -157,7 +184,15 @@ export function Composer({
         onInterrupt?.()
         return
       }
-      if (key.tab) return
+      if (key.tab) {
+        onCyclePreset?.()
+        return
+      }
+      // ctrl+u：清空待发附件（只在有附件时收；没附件时它什么也不是，别吃）。
+      if (key.ctrl && input === 'u') {
+        if (attachments.length > 0) onClearAttachments?.()
+        return
+      }
       if (key.return) {
         if (key.shift) {
           apply(insertText(current, at, '\n'))
@@ -234,6 +269,22 @@ export function Composer({
           <Text color={theme.textMuted}> (no candidates wired yet)</Text>
         </Box>
       )}
+      {notice !== undefined ? (
+        <Box paddingLeft={1}>
+          <Text color={theme.error}>{notice}</Text>
+        </Box>
+      ) : null}
+      {attachments.length > 0 ? (
+        <Box paddingLeft={1}>
+          <Text>
+            <Text color={theme.secondary}>📎 {attachments.length} image{attachments.length > 1 ? 's' : ''}</Text>
+            <Text color={theme.textMuted}>
+              {' '}{attachments.map((a) => a.name).join(', ')} · ctrl+u{' '}
+            </Text>
+            <Text color={theme.text}>clear</Text>
+          </Text>
+        </Box>
+      ) : null}
       {/* 顶 padding 行 */}
       <Text>
         {bar}
@@ -278,6 +329,7 @@ export function Composer({
         {bar}
         <Text backgroundColor={theme.backgroundElement}>
           <Text color={theme.secondary}>  {titlecase(preset ?? 'standard')}</Text>
+          {planModeSeen ? <Text color={theme.textMuted}> · plan/mode</Text> : null}
           {model !== undefined ? (
             <>
               <Text color={theme.textMuted}> · </Text>
@@ -293,12 +345,24 @@ export function Composer({
         <Text color={theme.backgroundElement}>{'▀'.repeat(Math.max(0, width - 1))}</Text>
       </Text>
       {/* 快捷键提示行 */}
-      <Box justifyContent={working ? 'space-between' : 'flex-end'}>
+      <Box justifyContent={working || onCyclePreset !== undefined ? 'space-between' : 'flex-end'}>
         {working ? (
           <Text>
             <Text color={theme.text}>… esc </Text>
             <Text color={theme.textMuted}>interrupt</Text>
           </Text>
+        ) : onCyclePreset !== undefined ? (
+          // opencode 空状态提示行实测：`tab agents  ctrl+p commands`
+          <Box gap={2}>
+            <Text>
+              <Text color={theme.text}>tab </Text>
+              <Text color={theme.textMuted}>preset</Text>
+            </Text>
+            <Text>
+              <Text color={theme.text}>ctrl+p </Text>
+              <Text color={theme.textMuted}>commands</Text>
+            </Text>
+          </Box>
         ) : null}
         <Box gap={2}>
           <Text>

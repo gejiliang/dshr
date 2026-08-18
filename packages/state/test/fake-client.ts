@@ -219,6 +219,76 @@ export function eventFrame(sessionId: SessionId, event: SessionEvent, view?: Too
   return { type: 'session/event', sessionId, event, ...(view ? { view } : {}) } as MuxFrame
 }
 
+// ---- A 批感知类事件的构造器（形状出处见 docs/gap-shapes.md 与包内 .d.ts）----
+
+/** `llm/retry`（docs/gap-shapes.md §二的实测 JSON）。 */
+export function llmRetry(seq: number, retryId: string, retry: number, maxRetries = 2, code = 'RATE_LIMIT'): SessionEvent {
+  return {
+    type: 'llm/retry',
+    seq,
+    time: 1_000 + seq,
+    data: {
+      retryId,
+      turn: 1,
+      step: 1,
+      retry,
+      maxRetries,
+      delayMs: 500,
+      failure: { message: '429: rate limited', code },
+    },
+  } as SessionEvent
+}
+
+export function llmRetryStarted(seq: number, retryId: string, retry: number): SessionEvent {
+  return { type: 'llm/retry-started', seq, time: 1_000 + seq, data: { retryId, turn: 1, step: 1, retry } } as SessionEvent
+}
+
+export function todoWrite(seq: number, todos: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]): SessionEvent {
+  return { type: 'todo/write', seq, time: 1_000 + seq, data: { todos } } as SessionEvent
+}
+
+/** `command/run` / `command/done`（dsh-commands 的 types.d.ts）。 */
+export function commandRun(seq: number, commandId: string, name: string, args?: string): SessionEvent {
+  return {
+    type: 'command/run',
+    seq,
+    time: 1_000 + seq,
+    data: { commandId, name, ...(args !== undefined ? { args } : {}), source: { kind: 'user' } },
+  } as SessionEvent
+}
+
+export function commandDone(seq: number, commandId: string, kind: 'success' | 'error', text?: string): SessionEvent {
+  return {
+    type: 'command/done',
+    seq,
+    time: 1_000 + seq,
+    data: { commandId, kind, ...(text !== undefined ? { text } : {}) },
+  } as SessionEvent
+}
+
+/** `compaction/*` 与 `plan/mode`：形状未打到，只给 type（fold 也只许认 type）。 */
+export function extensionEvent(seq: number, type: string): SessionEvent {
+  return { type, seq, time: 1_000 + seq, data: {} } as unknown as SessionEvent
+}
+
+/** mux 的 `session/queue` 帧（docs/gap-shapes.md §六的实测 JSON）。 */
+export function queueFrame(sessionId: SessionId, texts: string[]): MuxFrame {
+  return {
+    type: 'session/queue',
+    sessionId,
+    items: texts.map((text, i) => ({
+      id: `q-${i}`,
+      placement: 'queued',
+      message: {
+        id: `q-${i}`,
+        role: 'user',
+        content: [{ type: 'text', text }],
+        source: { kind: 'user', rpcId: `r-${i}` },
+      },
+    })),
+  } as unknown as MuxFrame
+}
+
 export function entry(event: SessionEvent, view?: ToolEventView): HistoryEntry {
   return { event, ...(view ? { view } : {}) } as HistoryEntry
 }
