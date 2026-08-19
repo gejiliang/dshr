@@ -54,21 +54,36 @@ test('list：结果不是数组就 reject（形状变了要响，不静默吞）
 test('run：打 commands/execute，args 是 { agentId, line }', async () => {
   const { gateway, calls } = fakeGateway([undefined])
   const source = createTypertSlashCommands(gateway)
-  const receipt = await source.run(s1, '/help')
+  const outcome = await source.run(s1, '/help')
   assert.deepEqual(calls, [
     { namespace: 'commands', method: 'execute', args: { agentId: s1, line: '/help' } },
   ])
-  assert.equal(receipt, undefined, '未被认领的行没有回执')
+  assert.deepEqual(outcome, { kind: 'unclaimed' }, 'host 返回 undefined = 没被任何命令认领')
 })
 
-test('run：业务失败（result.kind === error）返回回执文本，成功没有回执', async () => {
+test('run：成功与「没被认领」必须分得开（回归）', async () => {
+  // ⚠️ 这条测试的前身**是那个 bug 的共犯**：它断言「成功没有回执」并把成功和
+  // 未认领都写成 `undefined`，于是把错误契约钉成了「正确行为」。
+  // 真实后果：正常会话上成功执行一条命令，界面弹「did nothing — need a started
+  // session」，自相矛盾。跨厂商评审（DeepSeek）挑出来的；我自己只测了 error 那条路。
   const { gateway } = fakeGateway([
     { commandId: 'c1', result: { kind: 'error', text: 'no active turn to compact' } },
     { commandId: 'c2', result: { kind: 'success' } },
+    undefined,
   ])
   const source = createTypertSlashCommands(gateway)
-  assert.equal(await source.run(s1, '/compact'), 'no active turn to compact')
-  assert.equal(await source.run(s1, '/help'), undefined)
+  assert.deepEqual(await source.run(s1, '/compact'), { kind: 'error', text: 'no active turn to compact' })
+  assert.deepEqual(await source.run(s1, '/plan'), { kind: 'ok' }, '成功必须是 ok，不能退化成 unclaimed')
+  assert.deepEqual(await source.run(s1, '/nope'), { kind: 'unclaimed' })
+})
+
+test('run：execution 有值但 result 形状意外时按成功处理，不倒回 unclaimed（回归）', async () => {
+  // 有 execution 就说明命令被认领并跑过了；此时倒回 unclaimed 会重现那句假回执。
+  // 事件流（command/run / command/done）才是权威。
+  const { gateway } = fakeGateway([{ commandId: 'c3' }, { commandId: 'c4', result: 'weird' }])
+  const source = createTypertSlashCommands(gateway)
+  assert.deepEqual(await source.run(s1, '/x'), { kind: 'ok' })
+  assert.deepEqual(await source.run(s1, '/y'), { kind: 'ok' })
 })
 
 test('run：网关层失败直接 reject 出去', async () => {

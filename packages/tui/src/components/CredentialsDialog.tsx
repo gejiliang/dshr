@@ -195,6 +195,10 @@ export function CredentialsDialog({ load, onSet, onUnset, onClose, maxHeight }: 
     body = (
       <DialogSelect
         key="list"
+        // ⚠️ 列表屏也不给搜索框。ref 通常只有几个，搜索价值很小，而这是
+        // 「凭证」上下文里最后一处会回显任意输入的地方——人可能一打开就直接
+        // 粘密钥（比「早按一步」还早一步）。评审指出的第二处漏网。
+        searchable={false}
         title="Credentials"
         options={credentialOptions(data.credentials)}
         {...(maxHeight !== undefined ? { maxHeight } : {})}

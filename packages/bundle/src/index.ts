@@ -140,14 +140,21 @@ export function createTypertSlashCommands(gateway: TypertGatewayLike): SlashComm
         method: 'execute',
         args: { agentId: sessionId, line },
       })
-      // undefined = 这行没被任何命令认领；成功结果也没有回执
-      // （command/run / command/done 事件已经进会话流）。
-      if (typeof execution !== 'object' || execution === null) return undefined
+      // ⚠️ 三种结局必须分开返回，**不能都折叠成 undefined**。
+      //
+      // 上游 `CommandRuntime.execute` 返回 `CommandExecution | undefined`：
+      // `undefined` = 这行没被任何命令认领（未知命令，或空白会话上还没有 agent）；
+      // 有值时 `result.kind` 才区分成功与失败。早先这里成功也 `return undefined`，
+      // 于是消费端把「成功」当成「没被认领」，在正常会话上弹了句
+      // 「did nothing — need a started session」——自相矛盾。跨厂商评审挑出来的。
+      if (typeof execution !== 'object' || execution === null) return { kind: 'unclaimed' }
       const result = (execution as { result?: unknown }).result
-      if (typeof result !== 'object' || result === null) return undefined
+      // 有 execution 就是被认领了；result 形状意外时按成功处理（事件流才是权威），
+      // 绝不能倒回 unclaimed——那正是上面那个 bug 的形状。
+      if (typeof result !== 'object' || result === null) return { kind: 'ok' }
       const { kind, text } = result as { kind?: unknown; text?: unknown }
-      if (kind === 'error') return typeof text === 'string' ? text : 'command failed'
-      return undefined
+      if (kind === 'error') return { kind: 'error', text: typeof text === 'string' ? text : 'command failed' }
+      return { kind: 'ok' }
     },
   }
 }

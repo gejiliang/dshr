@@ -383,3 +383,37 @@ test('未配置的 ref 没有 Unset 入口', async (t) => {
   assert.ok(!out.includes('Unset…'), '没配过的不该有 Unset 入口')
   app.unmount()
 })
+
+test('CAS 冲突：刷新 revision 再让人重试，不死循环（回归）', async (t) => {
+  t.after(cleanup)
+  // ⚠️ 跨厂商评审（DeepSeek）挑出来的：原来冲突后只 setReceipt 就回字段屏，
+  // **本地 revision 还是旧的** —— 人再改一次仍然拿旧 revision 去写，撞同一个冲突，
+  // 只能关掉编辑器重开才能续上。不丢别人的改动，但丢自己的输入且重试死循环。
+  let refreshed = 0
+  const conflict = new Error(
+    'settings.mutate failed: settings-conflict: settings namespace "fixture" changed since it was read (expected revision 7, now 9)',
+  )
+  const onMutate = (): Promise<SettingsNamespace> => Promise.reject(conflict)
+  const onRefresh = (): Promise<SettingsOverview> => {
+    refreshed++
+    const fresh = fixtureOverview()
+    return Promise.resolve({
+      ...fresh,
+      namespaces: fresh.namespaces.map((ns) => ({ ...ns, revision: 9 })),
+    })
+  }
+  const app = render(
+    h(SettingsEditor, { overview: fixtureOverview(), onMutate, onRefresh, onClose: () => {} }),
+  )
+  await flush()
+  app.stdin.write(DOWN + ENTER)
+  await flush()
+  app.stdin.write(DOWN + DOWN + DOWN + DOWN + ENTER) // boolean 就地切换 → 触发 mutate
+  await flush(80)
+
+  const out = outputOf(app)
+  assert.ok(out.includes('settings-conflict'), `冲突原因必须原样给人看: ${JSON.stringify(out.slice(0, 300))}`)
+  assert.ok(out.includes('reloaded'), '必须说明已经重新拉过，可以重试')
+  assert.strictEqual(refreshed, 1, 'CAS 冲突必须触发一次 describe 刷新，否则重试永远撞同一堵墙')
+  app.unmount()
+})

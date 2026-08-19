@@ -41,6 +41,14 @@ export interface SettingsEditorProps {
     ops: readonly SettingsPathOp[],
     expectedRevision: number,
   ) => Promise<SettingsNamespace>
+  /**
+   * 重新拉一次 `settings.describe`。**CAS 冲突之后必须用它刷新 revision。**
+   *
+   * ⚠️ 不给这条通道会死循环：冲突后本地 revision 还是旧的，人再改一次仍然拿旧
+   * revision 去写，撞同一个冲突，**只能关掉编辑器重开才能继续**。
+   * （跨厂商评审挑出来的。）
+   */
+  readonly onRefresh?: () => Promise<SettingsOverview>
   readonly onClose: () => void
   readonly maxHeight?: number
 }
@@ -105,7 +113,7 @@ function fieldLabel(field: SettingField): string | undefined {
   return undefined
 }
 
-export function SettingsEditor({ overview, onMutate, onClose, maxHeight }: SettingsEditorProps): ReactElement {
+export function SettingsEditor({ overview, onMutate, onRefresh, onClose, maxHeight }: SettingsEditorProps): ReactElement {
   // 命名空间列表进 state：mutate 成功后用返回的 view 原地换新（带新 revision）。
   const [namespaces, setNamespaces] = useState(overview.namespaces)
   const namespacesRef = useRef(namespaces)
@@ -139,7 +147,24 @@ export function SettingsEditor({ overview, onMutate, onClose, maxHeight }: Setti
       setNamespaces(namespacesRef.current.map((candidate) => (candidate.ns === nsName ? next : candidate)))
       setReceipt({ tone: 'ok', text: done(next.revision) })
     } catch (error) {
-      setReceipt({ tone: 'error', text: errorText(error) })
+      const message = errorText(error)
+      // CAS 冲突（`settings-conflict`）说明别处改过了：**刷新 revision 再让人重试**，
+      // 否则拿着旧 revision 重试永远撞同一堵墙（只能关掉重开）。
+      // 刷新失败就把两条消息都给人，别把原始冲突原因吞掉。
+      if (/settings-conflict/.test(message) && onRefresh !== undefined) {
+        try {
+          const fresh = await onRefresh()
+          setNamespaces(fresh.namespaces)
+          setReceipt({
+            tone: 'error',
+            text: `${message} — reloaded; your edit was not applied, try again`,
+          })
+        } catch (refreshError) {
+          setReceipt({ tone: 'error', text: `${message} (reload failed: ${errorText(refreshError)})` })
+        }
+      } else {
+        setReceipt({ tone: 'error', text: message })
+      }
     } finally {
       inFlight.current = false
     }
@@ -157,6 +182,12 @@ export function SettingsEditor({ overview, onMutate, onClose, maxHeight }: Setti
         setScreen({ kind: 'fields', ns: ns.ns, trail: [...trail, field.key] })
         return
       case 'enum':
+        // 与 boolean/string/number/text 一致：只读 host 上当场给理由，
+        // 别让人选完一圈才收到 host 的拒绝（评审指出的分支不一致）。
+        if (!overview.writable) {
+          setReceipt({ tone: 'error', text: 'settings are read-only on this host' })
+          return
+        }
         setScreen({ kind: 'enum', ns: ns.ns, trail, field })
         return
       case 'boolean': {

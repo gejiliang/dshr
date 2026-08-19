@@ -626,19 +626,24 @@ export function SessionApp({
     if (slashSource === undefined) return
     const id = activeRef.current
     void slashSource.run(id, line).then(
-      (receipt) => {
-        // 业务失败（CommandExecution.result.kind === 'error'）的回执进会话 notice 行。
-        if (receipt !== undefined) {
-          notify(state, id, receipt)
+      (outcome) => {
+        // 三种结局分开处理——**别再把「成功」和「没被认领」混成一种**（见
+        // SlashRunOutcome 的注释：混了会在正常会话上弹一句自相矛盾的假回执）。
+        if (outcome.kind === 'error') {
+          notify(state, id, outcome.text)
           return
         }
-        // ⚠️ `undefined` = **这行没被任何命令认领**，绝不能静默吞掉。
+        if (outcome.kind === 'ok') {
+          // 成功不给回执：`command/run` / `command/done` 事件已经把
+          // `→ /name` 那行画进会话流了，再补一句是噪声。
+          return
+        }
+        // `unclaimed`：没有任何命令认领这一行，**绝不能静默吞掉**。
         //
-        // 实测踩过：**空白会话（还没跑过一轮）上执行任何斜杠命令都返回 undefined**——
+        // 实测踩过：**空白会话（还没跑过一轮）上执行任何斜杠命令都走这里**——
         // host 侧 `CommandRuntime.execute` 走 `view(agent).get(name)`，而空白会话
         // 还没有 agent，视图是空的。当时表现就是「回车之后界面上什么都不发生」，
         // 正是我们最想避免的那类「按钮点了没反应」。
-        // 跑过一轮之后同一条命令就正常了（实测 `/compact` 返回真实回执）。
         notify(
           state,
           id,
@@ -908,6 +913,9 @@ export function SessionApp({
           <SettingsEditor
             overview={dialog.data}
             onMutate={(ns, ops, expectedRevision) => state.mutateSetting(ns, ops, expectedRevision)}
+            // CAS 冲突之后编辑器用它刷新 revision——没有这条通道，重试会永远撞
+            // 同一堵墙，人只能关掉重开（评审指出的死循环）。
+            onRefresh={() => state.describeSettings()}
             onClose={close}
             maxHeight={maxHeight}
           />
