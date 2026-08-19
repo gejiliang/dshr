@@ -156,7 +156,17 @@ type SubagentDescriptorData =
 | `agentPreset.list` 里找 plan 预设 | 没有。dsh 只有 `standard`/`code`/`minimal`/`cordis` 四个，**plan 不是一个 preset** |
 | 撑爆上下文造压缩 | 没试——`request/context` 报 `contextWindow: 131072`，mock 造不出这个量 |
 
-  > 所以 **plan 模式在 dsh 里怎么进，目前是未知的**。不是「有接口没接」，是还没找到入口。
+  > ~~所以 plan 模式在 dsh 里怎么进，目前是未知的。~~
+  >
+  > **✅ 2026-08-19 找到了：入口是斜杠命令 `/plan`**（"Enter or leave plan mode"）。
+  > 它是 host 的 `CommandRuntime` 命令之一，走 typert `commands.execute`——
+  > 所以当初怎么试都触发不了：**它根本不是工具，也不是 preset，是一条客户端斜杠命令**，
+  > 而那时候 `/` 还没做。实测在跑过一轮的会话上执行 `/plan`，composer 的模式行
+  > 立刻变成 `Standard · plan/mode · <model>`，`plan/mode` 事件确实到了。
+  >
+  > **载荷形状仍未打**（现在只认 type）。要打的话现在有路了：起插件形态、跑一轮、
+  > 执行 `/plan`，同时用 `tools/probe-gaps.mjs` 接同一台 host 抓 `plan/mode` 的
+  > 原始 JSON。做之前别猜字段名。
 
 **动它们之前必须先打到一次真事件**。在没有实测样本之前：
 
