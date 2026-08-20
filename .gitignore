@@ -13,3 +13,9 @@ secrets/*
 .dshr-dev/
 *.log
 .claude/worktrees/
+# 个人的 Claude Code 权限覆盖——**只对这台机器有意义，不进仓库**。
+# dshr 是公开仓库：把「自动放行某个命令」这类策略提交上去，
+# 等于替每个 clone 的人做了他们没同意过的决定。
+# 项目级的共享配置写 `.claude/settings.json`（那个可以进仓库），
+# 个人的放这里。
+.claude/settings.local.json
