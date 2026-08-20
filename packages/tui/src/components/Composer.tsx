@@ -301,12 +301,29 @@ export function Composer({
             if (picked !== undefined) pickSlash(picked)
             return
           }
+          // Tab = **补全**，Enter = 执行（shell / 编辑器的通用习惯）。
+          //
+          // ⚠️ 这一条必须排在下面那个「tab 切预设」前面，否则弹出层开着时
+          // Tab 会被预设切换吃掉——人是想补全命令的。踩过：会话进行中按 Tab
+          // 既没补全、还去切预设，然后撞 host 的 `agent-preset-locked` 报错。
+          if (key.tab) {
+            const picked = slash.filtered[slash.selected]
+            const entry = picked === undefined
+              ? undefined
+              : slashCommandsRef.current?.find((e) => e.key === picked.value)
+            if (entry !== undefined) apply({ text: `/${entry.name} `, cursor: entry.name.length + 2 })
+            return
+          }
         }
       }
       if (key.escape) {
         onInterrupt?.()
         return
       }
+      // tab 切预设：**只有调用方给了 onCyclePreset 才有这回事**。
+      // host 在第一轮之后锁死 preset（`agent-preset-locked`），所以非空白会话
+      // 上调用方根本不传这个回调——于是这里是 no-op，底部提示行也不会写
+      // 「tab preset」（同一个判断驱动行为和提示，不会各说各话）。
       if (key.tab) {
         onCyclePreset?.()
         return

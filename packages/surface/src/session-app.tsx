@@ -306,6 +306,10 @@ export function SessionApp({
   }
 
   const openPresetDialog = async (): Promise<void> => {
+    if (!presetSwitchable) {
+      showNotice('agent preset is locked after the first turn — start a new session to change it')
+      return
+    }
     try {
       const presets = await state.listPresets()
       if (presets.length === 0) {
@@ -340,6 +344,18 @@ export function SessionApp({
   }
 
   /** tab 就地循环预设（opencode 实测行为）；非 blank 会话会被 host 拒，提示出来。 */
+  /**
+   * 这个会话还能不能换 preset。
+   *
+   * host 在**第一轮之后锁死** preset（`agent-preset-locked`），`blank` 正是
+   * 「还没跑过一轮」——第一次 `host/session-status{running:true}` 时翻掉。
+   *
+   * ⚠️ 踩过：以前只在命令描述里写了「Blank sessions only」，**没有任何东西真的拦住**。
+   * 于是会话进行中按 Tab（人是想补全）会去切预设，然后撞 host 的拒绝弹一条错误。
+   * 现在这一个判断同时决定：Tab 收不收、面板那条命令给不给开、底部提示行画不画。
+   */
+  const presetSwitchable = (state.sessions.get(activeSessionId)?.blank ?? true) === true
+
   const cyclePreset = async (): Promise<void> => {
     const id = activeRef.current
     try {
@@ -798,7 +814,7 @@ export function SessionApp({
         width={contentWidth}
         working={summary?.status === 'working'}
         onInterrupt={() => void state.cancel(activeSessionId)}
-        onCyclePreset={() => void cyclePreset()}
+        {...(presetSwitchable ? { onCyclePreset: () => void cyclePreset() } : {})}
         attachments={attachments.map((draft) => ({ name: draft.name, bytes: draft.bytes }))}
         onClearAttachments={() => setAttachments([])}
         {...(attachNotice !== undefined ? { notice: attachNotice } : {})}

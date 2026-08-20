@@ -169,3 +169,34 @@ test('无匹配时出 muted 空行而不是假条目，enter 退回正常提交'
   assert.deepEqual(submitted, ['/zzz'], '未匹配的斜杠行原样交给上层路由')
   app.unmount()
 })
+
+test('候选列表开着时 Tab 是补全，不是切预设（回归）', async (t) => {
+  t.after(cleanup)
+  // ⚠️ 真踩过：会话进行中按 Tab（人是想补全命令）被预设切换吃掉，
+  // 然后撞 host 的 `agent-preset-locked` 弹一条错误。
+  // Tab = 补全、Enter = 执行，是 shell / 编辑器的通用习惯；
+  // 弹出层开着时这一条必须**排在** tab 切预设前面。
+  let cycled = 0
+  let executed = 0
+  const app = render(
+    h(Composer, {
+      onSubmit: () => {},
+      onCyclePreset: () => cycled++,
+      onSlashCommand: () => executed++,
+      slashCommands: [
+        { key: 'dsh:compact', source: 'dsh', name: 'compact', description: 'Compact history' },
+      ],
+    }),
+  )
+  await flush()
+  app.stdin.write('/comp')
+  await flush()
+  app.stdin.write('\t')
+  await flush()
+
+  const frame = app.lastFrame() ?? ''
+  assert.ok(frame.includes('/compact '), `Tab 应补全成 "/compact "：${JSON.stringify(frame.slice(0, 300))}`)
+  assert.strictEqual(cycled, 0, 'Tab 在候选列表开着时绝不能去切预设')
+  assert.strictEqual(executed, 0, 'Tab 只补全，不执行——执行是 Enter 的事')
+  app.unmount()
+})
