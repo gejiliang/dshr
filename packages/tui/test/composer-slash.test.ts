@@ -200,3 +200,52 @@ test('候选列表开着时 Tab 是补全，不是切预设（回归）', async 
   assert.strictEqual(executed, 0, 'Tab 只补全，不执行——执行是 Enter 的事')
   app.unmount()
 })
+
+/**
+ * 剥掉 ANSI 转义码再断言。
+ *
+ * ⚠️ 别省这一步：提示行是 `<Text>tab </Text><Text>preset</Text>`，
+ * 渲染出来 `tab ` 与 `preset` 中间夹着一段颜色转义码，直接对原始帧跑
+ * /tab\s+preset/ **永远匹配不上**——于是「不该出现」的断言会假通过，
+ * 测试看着绿的、其实什么也没测。踩过：这两条测试第一版就是这么写错的。
+ */
+function plain(frame: string): string {
+  return frame.replace(/\x1b\[[0-9;]*m/g, '')
+}
+
+test('没给 onCyclePreset 时 Tab 是 no-op，提示行也不许写「tab preset」', async (t) => {
+  t.after(cleanup)
+  // 会话跑过第一轮之后 host 就锁死 preset（`agent-preset-locked`），
+  // 调用方于是**根本不传** onCyclePreset。这里钉两件事：
+  //   1. Tab 什么也不做（不是弹错，是压根没这回事）
+  //   2. 底部提示行不写「tab preset」——提示与行为由同一个判断驱动，
+  //      不许出现「提示说能按、按下去报错」这种各说各话。
+  const { app, submitted } = renderComposer()   // 注意：没有 onCyclePreset
+  await flush()
+  app.stdin.write('\t')
+  await flush()
+
+  const frame = plain(app.lastFrame() ?? '')
+  assert.ok(
+    !/tab\s+preset/i.test(frame),
+    `不能切预设时提示行不该写 tab preset：${JSON.stringify(frame.slice(-160))}`,
+  )
+  assert.deepEqual(submitted, [], 'Tab 不该提交任何东西')
+
+  // 还能正常打字——Tab 被吃掉不代表输入坏了
+  app.stdin.write('hi')
+  await flush()
+  assert.ok(plain(app.lastFrame() ?? '').includes('hi'), 'Tab 之后输入应照常')
+  app.unmount()
+})
+
+test('给了 onCyclePreset 时提示行才写「tab preset」（守住上一条不是假通过）', async (t) => {
+  t.after(cleanup)
+  const { app } = renderComposer({ onCyclePreset: () => {} })
+  await flush()
+  assert.ok(
+    /tab\s+preset/i.test(plain(app.lastFrame() ?? '')),
+    '能切预设时提示行应写 tab preset',
+  )
+  app.unmount()
+})
