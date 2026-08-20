@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url'
 export const PROFILE_NAME = 'dshr'
 
 /** 没有 `DSHR_DSH_COMMAND` 时怎么拉起 dsh。 */
-const DEFAULT_DSH_COMMAND = ['npx', '--yes', '@deepseek-ai/dsh@0.1.0-rc.6']
+const DEFAULT_DSH_COMMAND = ['npx', '--yes', '@deepseek-ai/dsh@0.1.0-rc.7']
 
 export function dshHome(): string {
   const configured = process.env['DSH_HOME']

@@ -1,11 +1,20 @@
-# dsh host 契约（实测，2026-08-15）
+# dsh host 契约（实测，2026-08-15 首测 / 2026-08-20 在 rc.7 上复验）
 
-> 版本戳：**dsh `0.1.0-rc.6`**（2026-08-13 首发，developer preview，MIT）。
+> 版本戳：**dsh `0.1.0-rc.7`**（rc.6 于 2026-08-13 首发，developer preview，MIT）。
 > 本文是 dshr 全部代码的实现依据。**每一条都在本机跑通过或从安装包里逐字读出**，
 > 没有一条来自推测。判据是 `curl` 的真实响应与 `node_modules/@deepseek-ai/*` 的构建产物，
 > 不是文档措辞。
 >
 > 上游是 developer preview，**会漂**。改判据前先问：这条依赖上游的哪个行为、在哪个版本上验过。
+>
+> **rc.6 → rc.7 复验结论（2026-08-20）**：承重面**一条没变**——
+> `RpcMethodMap` 仍是 52 个方法、已知会话事件仍是 39 个（`tools/coverage.sh` 从上游类型直接数的）；
+> in-process carrier 仍然零监听端口（`lsof -a -p <pid> -iTCP -sTCP:LISTEN` 空）；
+> typert 网关仍须用 `ctx.reflect.get('typertGateway', false)` 取（直接 `ctx.typertGateway` 照样抛
+> `cannot get property without inject`）；`settings.*` 的 schema／revision 形状不变。
+> **变了的只有第九节的 dist-tag 地形**——见那节，rc.7 起 `next` 也不能跟了。
+> 正文里带日期的实测记录（「2026-08-1x 在 rc.6 上实测」）一律保持原样：
+> 那说的是「那个形状是在那个版本上看到的」，现在依然为真，不是待更新的版本号。
 
 ## 一、为什么 dshr 是「client」而不是「fork」
 
@@ -394,27 +403,46 @@ patch 的语义要记住两条，都踩过：
 其它可用旗标：`--dump-default-config` / `--dump-config` 只组合不启动。
 launcher 自己的旗标必须写在前面，**第一个它不认识的 token 开始就是 app 的参数**。
 
-## 九、装包：`latest` 不是你要的那个（实测 2026-08-15）
+## 九、装包：`latest` 不是你要的那个（首测 2026-08-15，rc.7 上复验 2026-08-20）
 
-**`@deepseek-ai/dsh` 本体的 `latest` 是 `0.1.0-rc.6`，但它那些库包的 `latest` 停在 `0.0.1-rc.1`，
-0.1.x 这条线挂在 `next` 上。**
+**`@deepseek-ai/dsh` 本体走 `latest`，但它那些库包的 `latest` 停在 `0.0.1-rc.1`，
+0.1.x 这条线挂在 `next` 上。**这个错位从 rc.6 到 rc.7 一直在，别指望它自己好。
 
 ```console
+# 2026-08-20 实测
 $ npm view @deepseek-ai/dsh dist-tags
-{ latest: '0.1.0-rc.6', next: '0.1.0-rc.6' }
+{ next: '0.1.0-rc.8', latest: '0.1.0-rc.7' }
 
 $ npm view @deepseek-ai/dsh-host-apiproxy dist-tags
-{ latest: '0.0.1-rc.1', next: '0.1.0-rc.6' }      # ← 差了一整条线
+{ latest: '0.0.1-rc.1', next: '0.1.0-rc.8' }      # ← latest 差了一整条线
 
-$ npm view @deepseek-ai/dsh-llm-mock-server dist-tags
-{ latest: '0.0.1-rc.1', next: '0.1.0-rc.6' }
+$ npm view @deepseek-ai/dsh-llm dist-tags
+{ latest: '0.0.1-rc.1', next: '0.1.0-rc.8' }
 ```
+
+⚠️ **rc.7 起多了一层坑：`next` 也不能跟。** 上面这三行摆在一起看——
+本体的 `latest` 是 **rc.7**，库包的 `next` 已经是 **rc.8**。
+「本体用 latest、库包用 next」这条看起来很自然的规则，现在会给你
+**rc.8 的库配 rc.7 的宿主**。两个 tag 各跑各的，没有任何东西保证它们同步。
 
 所以：
 
-- **依赖一律钉精确版本**（`"0.1.0-rc.6"`），不要写 `^0.1.0-rc.6`，更不要靠 `latest`。
-  预发布版本的 semver range 语义本来就绕，加上 dist-tag 错位，写范围几乎必然装错。
-- 精确版本装得到，已验证：`npm view @deepseek-ai/dsh-host-apiproxy@0.1.0-rc.6 version` → `0.1.0-rc.6`。
+- **依赖一律钉精确版本**，且**钉的那个版本要等于你实际启动的宿主版本**。
+  **同一个数字散在 5 处，升级时一起改，漏一处就是库和宿主错版**：
+
+  | 文件 | 钉的东西 |
+  |---|---|
+  | `packages/cli/src/profile.ts` | `DEFAULT_DSH_COMMAND` —— **实际启动的宿主**，以它为准 |
+  | `packages/bundle/package.json` | `@deepseek-ai/dsh-cmdline` |
+  | `packages/protocol/package.json` | `@deepseek-ai/dsh-host-apiproxy` |
+  | `packages/state/package.json` | `@deepseek-ai/dsh-llm` |
+  | 根 `package.json` | `@deepseek-ai/dsh-llm-mock-server`（开发期假 provider） |
+
+  一句话查漏：`grep -rn '0\.1\.0-rc\.' --include=package.json . | grep -v node_modules`
+  再加上 `profile.ts` 那一行，5 处版本号必须一致。
+- 不要写 `^0.1.0-rc.7`：预发布版本的 semver range 语义本来就绕，加上 dist-tag 错位，
+  写范围几乎必然装错。
+- 精确版本装得到，已验证：`npm view @deepseek-ai/dsh-host-apiproxy@0.1.0-rc.7 version` → `0.1.0-rc.7`。
 - 库包**没有**随 `@deepseek-ai/dsh` 一起装到顶层的保证——`dsh` 的 `devDependencies`
   （含 `dsh-llm-mock-server`、`dsh-agent`、`dsh-session` 等）在装published 包时**不会**被装。
   要用就自己声明依赖。

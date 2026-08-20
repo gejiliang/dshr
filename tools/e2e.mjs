@@ -9,7 +9,7 @@
  *
  *   # 2) 起 host，指向 mock（settings.yaml 见 docs/profile.md）
  *   MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome \
- *     npx @deepseek-ai/dsh@0.1.0-rc.6 web --port 39081
+ *     npx @deepseek-ai/dsh@0.1.0-rc.7 web --port 39081
  *
  *   # 3) 跑这个
  *   node tools/e2e.mjs http://127.0.0.1:39081

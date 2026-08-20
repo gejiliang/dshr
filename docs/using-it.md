@@ -60,7 +60,7 @@ export QP_API_KEY
 配好之后自查（不进 TUI）：
 
 ```sh
-DSH_HOME=~/.dsh npx @deepseek-ai/dsh@0.1.0-rc.6 --profile headless "回一句话"
+DSH_HOME=~/.dsh npx @deepseek-ai/dsh@0.1.0-rc.7 --profile headless "回一句话"
 ```
 
 这一句能出结果，dshr 就一定能用——它跟 TUI 走的是同一个 host 平面。
