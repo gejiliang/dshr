@@ -14,7 +14,7 @@
     "test": "node --test packages/*/test/*.test.ts"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-llm-mock-server": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm-mock-server": "0.1.0-rc.8",
     "@dshr/herdr": "workspace:*",
     "@dshr/protocol": "workspace:*",
     "@dshr/state": "workspace:*",
