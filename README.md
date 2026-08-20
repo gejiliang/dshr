@@ -3,7 +3,7 @@
 **A terminal session UI for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness),
 built to live inside a [herdr](https://herdr.dev) pane.**
 
-> ⚠️ **Early development.** dsh itself is a developer preview (`0.1.0-rc.7`), and dshr is
+> ⚠️ **Early development.** dsh itself is a developer preview (`0.1.0-rc.8`), and dshr is
 > younger than that. Interfaces will move. Nothing here is stable yet.
 
 `dsh` ships two surfaces: a one-shot `headless` mode and a `web` mode that serves a browser
@@ -60,7 +60,7 @@ dshr calls **26 of dsh's 52 RPC methods**, handles **all 19** downlink frame typ
 
 | | | |
 |---|---|---|
-| dsh host contract | ✅ | verified live against `0.1.0-rc.7` — [`docs/dsh-contract.md`](docs/dsh-contract.md) |
+| dsh host contract | ✅ | verified live against `0.1.0-rc.8` — [`docs/dsh-contract.md`](docs/dsh-contract.md) |
 | `@dshr/protocol` | ✅ | the `/api` wire carrier — 14 tests, 3 against a live host |
 | `@dshr/state` | ✅ | frames folded into a renderable model — 16 tests |
 | `@dshr/tui` | ✅ | the session surface, in opencode's shape — [`docs/opencode-port.md`](docs/opencode-port.md) |
@@ -167,7 +167,7 @@ only the model faked:
 
 ```sh
 node tools/mock-llm.mjs --port 8100 --text "hello from the mock"
-MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome npx @deepseek-ai/dsh@0.1.0-rc.7 web --port 39081
+MOCK_API_KEY=mock-key DSH_HOME=/tmp/dshhome npx @deepseek-ai/dsh@0.1.0-rc.8 web --port 39081
 node tools/e2e.mjs http://127.0.0.1:39081
 ```
 
@@ -190,10 +190,14 @@ host skip themselves when one is not reachable.
 ## Requirements
 
 - Node ≥ 22 (`fetch` and `WebSocket` are built in)
-- dsh `0.1.0-rc.7`, herdr `0.8.0+`, pnpm
+- dsh `0.1.0-rc.8`, herdr `0.8.0+`, pnpm
 
-> ⚠️ Pin dsh's library packages **exactly**. Their `latest` dist-tag still points at
-> `0.0.1-rc.1`; the `0.1.x` line lives under `next`. A `^0.1.0-rc.7` range will surprise you.
+> ⚠️ Pin **exactly** — and pin the libraries to the same version as the host you launch.
+> dsh's library packages still have `latest` pointing at `0.0.1-rc.1`; the `0.1.x` line
+> lives under `next`. `0.1.0-rc.8` is dsh's `next`, one ahead of its `latest` (`rc.7`) —
+> tracking `next` is deliberate here, because the libraries are only published there.
+> The two tags are not kept in sync with each other, so derive nothing from them:
+> see [`docs/dsh-contract.md`](docs/dsh-contract.md) §9 for the five places to bump.
 
 ## Security
 

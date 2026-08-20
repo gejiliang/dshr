@@ -106,7 +106,7 @@ try {
 
   console.log('起 dsh host …')
   const baseUrl = await new Promise((resolve, reject) => {
-    const child = spawn('npx', ['--yes', '@deepseek-ai/dsh@0.1.0-rc.7', 'web', '--port', '0'], {
+    const child = spawn('npx', ['--yes', '@deepseek-ai/dsh@0.1.0-rc.8', 'web', '--port', '0'], {
       env: { ...process.env, DSH_HOME: home, MOCK_API_KEY: 'mock-key' },
       stdio: ['ignore', 'pipe', 'pipe'],
     })

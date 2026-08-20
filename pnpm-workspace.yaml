@@ -1,2 +1,64 @@
 packages:
   - 'packages/*'
+# ── 下面这一大块是 `pnpm install` 自动加的，别手删 ────────────────────────────
+#
+# pnpm 11 默认有「最短发布年龄」防护（`minimumReleaseAge`，默认 24 小时）：
+# 刚发布不久的包一律拒装，挡的是「上游被投毒后几小时内抢装」这类供应链攻击。
+#
+# dshr 钉的 dsh 是 `next` 线（见 docs/dsh-contract.md 第九节），**经常比这个窗口还新**：
+# `0.1.0-rc.8` 发布于 2026-08-19T15:41Z，装它的时候还不到一天，于是整批被拦下来。
+#
+# 保留这份**逐个列名的豁免**，不要改成把 `minimumReleaseAge` 关掉——
+# 关掉是对所有依赖失去防护，列名只是对这一批已经人工过目的包开口子。
+# 升级 dsh 时这份列表会跟着 `pnpm install` 一起变，照单提交即可。
+minimumReleaseAgeExclude:
+  - '@deepseek-ai/dsh-agent-default-model@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-agent-presets@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-agent@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-api-gateway@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-api-remotes@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-atomic-write@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-attachment@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-brand@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-client-connection@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-cmdline@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-code-runtime@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-commands@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-compaction@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-cordis-host-runner@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-credentials@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-file-reference@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-goal@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-home-paths@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-host-apiproxy@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-host-directory-picker@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-host-plugin-inventory@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-host-webserver@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-invariants@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-jobs@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-llm-mock-server@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-llm@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-message-feedback@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-native-command@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-output-retention@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-scope@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-session-persistence@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-session-projection-cache@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-session-projection@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-session-query@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-session-reference@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-session-title@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-session@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-settings@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-skill@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-storage-domain@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-storage@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-subagent@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-system-prompt@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-timeout@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-tools@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-typert-protocol@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-typert-registry@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-user-approval@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-user-questions@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-workspace@0.1.0-rc.8'
