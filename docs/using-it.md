@@ -58,7 +58,7 @@ provider 路由写在 **patch 层**：机器级的 `$DSH_HOME/cordis.patch.yml` 
 本机已在 `profiles/headless/cordis.patch.yml` 里打开，dump 里看到 `disabled: false` 才算数。
 
 dsh 在 QP 侧是独立租户（key id 42 / name `dsh`）。受限副本在
-`~/.gbase/secrets/quota-proxy/clients/dsh.key`（父目录 700、文件 600），权威副本在密码管理器；
+`~/.gbase/secrets/quota-proxy/clients/dsh.key`（父目录 700、文件 600；密码管理器副本待补）；
 `~/.dsh/env.sh` 从那里取（pi 的 key 只作回退）——`tools/install.sh` 装的包装脚本
 每次都会 source 它，所以配一次就够，不用动 `~/.zshrc`：
 
