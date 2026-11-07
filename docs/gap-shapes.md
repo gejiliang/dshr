@@ -276,7 +276,7 @@ D 批实测又踩到的三个（2026-08-17，`tools/verify-batch-d.mjs`）：
    `command` + `run_in_background` 时，host 回 `ToolArgsError: missing required property "description"`——
    连 `session/jobs` 帧都不会有（任务根本没起来）。
 5. **模型不声明 `input: [text, image]` 模态，带图的 `session.prompt` 在准入时就被拒**：
-   `attachment-error: Model "…" does not support image input.`（`settings.yaml` 的 models 条目里加 `input`）。
+   `attachment-error: Model "…" does not support image input.`（在 patch 层 `llm-pi-ai` 的 models 条目里加 `input`）。
 6. **标题生成会消费 mock 的行为序列**：第一轮结束后 `session-title` 插件自己发一次 LLM 请求。
    用 `--sequence` 编排多轮行为时要把这一格算进去（或像 verify-batch-d 一样用
    `mock.requests.length` 等它落定），否则 stall/success 落不到你以为的轮次上。

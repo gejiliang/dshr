@@ -11,40 +11,60 @@ sh tools/install.sh
 ```
 
 装的是一层薄包装而不是软链，因为它要多做一件事：**自动把凭据带进环境**。
-dsh 的 `apiKeyEnv` 是引用，值必须在环境里；不这么做的话每开一个新终端
-都得先 `source` 一次，那就不叫能用了。
+dsh 的 `apiKeyEnv` 是引用，值按「凭据库 → 启动环境 → `.env`」解析；包装脚本负责
+source `~/.dsh/env.sh`，所以即使凭据库里没有，每开一个新终端也不用手动 source。
+（0.2 起推荐把 key 存进 dsh 凭据库，见下一节。）
 
 改了源码要重新 `npx tsc --build`——命令跑的是构建产物，不是源码。
 
 ## 二、配一个真模型
 
-dshr 自己不管模型，它只是 dsh 的一个 surface；模型配在 **`~/.dsh/settings.yaml`**。
+dshr 自己不管模型，它只是 dsh 的一个 surface。**dsh 0.2 起不再读 `~/.dsh/settings.yaml`**
+（那是 0.1 的机制；升级时旧文件会被导入一次、改名成 `settings.yaml.imported`），
+provider 路由写在 **patch 层**：机器级的 `$DSH_HOME/cordis.patch.yml` 对所有 profile 生效，
+排在 profile 自己的 `cordis.patch.yml` 之后——同 id 是**整条 config 替换**，不是逐字段合并。
 没有这一步的话界面能起来，但一提问就报 provider 相关的错。
 
-```yaml
-llm-pi-ai:
-  providers:
-    quota-proxy:
-      apiKeyEnv: QP_API_KEY          # ← 只写变量名，密钥不进这个文件
-      api: openai-completions
-      baseURL: https://<你的网关>/v1
-      models:
-        - id: <模型 id>
-          contextWindow: 1000000
-          maxTokens: 65536
+本机现有配置（`~/.dsh/cordis.patch.yml`）长这样，dsh 走 QP：
 
-agent-default-model:
-  provider: quota-proxy
-  model: <模型 id>
+```yaml
+- id: llm-pi-ai
+  config:
+    providers:
+      quota-proxy:
+        apiKeyEnv: QP_API_KEY          # ← 只写变量名，密钥不进这个文件
+        api: openai-completions
+        baseURL: https://qp.gejiliang.com/v1
+        models:                        # 替换该路由的 catalog：写了它，这条路由只认列表里的模型
+          - id: deepseek-v4.1-flash
+            contextWindow: 1048576
+            maxTokens: 393216
+            reasoningEfforts: { off: none, low: low, high: high, max: max }
 ```
 
-然后把那个变量的来源写进 **`~/.dsh/env.sh`**——`tools/install.sh` 装的包装脚本
+默认模型是另一条 patch（放 profile 层，比如 `~/.dsh/profiles/dshr/cordis.patch.yml`）：
+
+```yaml
+- id: agent-default-model
+  config:
+    provider: quota-proxy
+    model: deepseek-v4.1-flash
+```
+
+**凭据**：`apiKeyEnv` 只是引用，值不进 patch。dsh 的解析顺序是
+`$DSH_HOME/.credentials.yaml` 的 `refs`（stored，0600；Web 的 Models 页写这里）→
+启动环境 → 项目 `.env` → `$DSH_HOME/.env`。
+注意 `headless` bundle 默认把 `credentials` 行 disabled（CI 取向，只认环境变量）；
+本机已在 `profiles/headless/cordis.patch.yml` 里打开，dump 里看到 `disabled: false` 才算数。
+
+dsh 在 QP 侧是独立租户（key id 42 / name `dsh`）。受限副本在
+`~/.gbase/secrets/quota-proxy/clients/dsh.key`（父目录 700、文件 600），权威副本在密码管理器；
+`~/.dsh/env.sh` 从那里取（pi 的 key 只作回退）——`tools/install.sh` 装的包装脚本
 每次都会 source 它，所以配一次就够，不用动 `~/.zshrc`：
 
 ```sh
-# ~/.dsh/env.sh
-# 别在这里写死密钥：从你已有的凭据源现取（下面这行是从 pi 的配置里取）。
-QP_API_KEY="$(node -p "require(process.env.HOME + '/.pi/agent/models.json').providers['quota-proxy'].apiKey" 2>/dev/null)"
+# ~/.dsh/env.sh（实际内容以文件为准；要点是别把 key 写死在这里）
+QP_API_KEY="$(cat "$HOME/.gbase/secrets/quota-proxy/clients/dsh.key")"
 export QP_API_KEY
 ```
 
@@ -57,10 +77,10 @@ export QP_API_KEY
 - **`models` 列表是替换而不是追加**：写了它，这条路由就只认列表里的模型。
 - 想改一个模型的参数而保留其余 catalog，用 `modelOverrides`，别用 `models`。
 
-配好之后自查（不进 TUI）：
+配好之后自查（不进 TUI，也不需要 export 任何变量——凭据库会解析）：
 
 ```sh
-DSH_HOME=~/.dsh npx @deepseek-ai/dsh@0.1.0-rc.8 --profile headless "回一句话"
+dsh --profile headless "回一句话"
 ```
 
 这一句能出结果，dshr 就一定能用——它跟 TUI 走的是同一个 host 平面。
@@ -130,7 +150,7 @@ dshr --connect <url>       # attach 到别人起好的 host（这条才走 HTTP�
 |---|---|
 | `Cannot find package …` | 忘了 `pnpm install && npx tsc --build`。**改完源码或拉了新代码一定要重建**——`dshr` 命令跑的是构建产物，不是源码。踩过：删包之后忘了在主目录重建，命令直接起不来 |
 | 侧栏里看不到这个 pane 是 agent | 只在 herdr 里跑才上报（判据是 `HERDR_PANE_ID`）。手敲 `dshr` 在普通终端里是正常没有的 |
-| 界面起来但一提问就报错 | `~/.dsh/settings.yaml` 没配，或 `QP_API_KEY` 没 export |
+| 界面起来但一提问就报错 | patch 层没配 provider（`~/.dsh/cordis.patch.yml` 或 profile patch），或 `QP_API_KEY` 既不在 `~/.dsh/.credentials.yaml` 也没 export |
 | 整个界面塌成一列 | 终端没报尺寸；已有 80×24 兜底，还塌就把终端信息发我 |
 | 起不来 | 先单独跑一次 `DSH_HOME=<你的> dsh --profile dshr --dump-config` 看图组不组得出来；**再真跑一次**——组合阶段不检查服务依赖，dump 干净 ≠ 起得来（见 `profile.md`） |
 | 想确认不是我在吹 | `node tools/verify.mjs` 和 `expect -f tools/verify-tty.exp` |

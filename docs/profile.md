@@ -171,22 +171,25 @@ dshr --resume <sessionId>  # 直接打开某个已存在的会话（会话强制
    // server.baseURL 是绑定后的 /v1 基址
    ```
    `apiKey` 可省，省了就**接受任意 token**。
-2. 让 dsh 的 provider 指过去（`$DSH_HOME/settings.yaml`）：
+2. 让 dsh 的 provider 指过去（dsh 0.2 起写 patch 层，比如 `$DSH_HOME/cordis.patch.yml`，
+   不再用 0.1 的 `settings.yaml`）：
    ```yaml
-   llm-pi-ai:
-     providers:
-       mock:
-         apiKeyEnv: MOCK_API_KEY        # ← 必须有，见下面那个坑
-         api: openai-completions
-         baseURL: http://127.0.0.1:8100/v1
-         models:
-           - id: mock-model
-             contextWindow: 131072
-             maxTokens: 4096
+   - id: llm-pi-ai
+     config:
+       providers:
+         mock:
+           apiKeyEnv: MOCK_API_KEY        # ← 必须有，见下面那个坑
+           api: openai-completions
+           baseURL: http://127.0.0.1:8100/v1
+           models:
+             - id: mock-model
+               contextWindow: 131072
+               maxTokens: 4096
 
-   agent-default-model:
-     provider: mock
-     model: mock-model
+   - id: agent-default-model
+     config:
+       provider: mock
+       model: mock-model
    ```
 
 > ⚠️ **`apiKeyEnv` 不能省。** 适配器的规则是「**完全**不配凭据的路由才走 pi-ai 的环境发现」——

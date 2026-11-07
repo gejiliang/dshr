@@ -80,8 +80,10 @@ sh tools/install.sh
 the credential reference into the environment — dsh resolves `apiKeyEnv` at request time, and
 needing a `source` per shell is the difference between a tool and a chore.
 
-Then point it at a model in `~/.dsh/settings.yaml` and supply the key through `~/.dsh/env.sh`.
-Both files, and the one trap in them, are in [`docs/using-it.md`](docs/using-it.md).
+Then point it at a model in the dsh patch layer (`~/.dsh/cordis.patch.yml` for the machine-wide
+layer, or the profile's own `cordis.patch.yml`) and supply the key through `~/.dsh/env.sh`
+(or dsh's credential store — `~/.dsh/.credentials.yaml`).
+Both files, and the traps in them, are in [`docs/using-it.md`](docs/using-it.md).
 
 ## Use
 

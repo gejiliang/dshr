@@ -55,5 +55,5 @@ chmod +x "$BIN/dshr"
 echo "装好了： $BIN/dshr  →  $ENTRY"
 echo
 echo "还差模型配置的话，看 docs/using-it.md 第二节："
-echo "  ~/.dsh/settings.yaml  声明 provider 与默认模型"
+echo "  ~/.dsh/cordis.patch.yml  声明 provider 与默认模型（0.2 起的 patch 层）"
 echo "  ~/.dsh/env.sh         提供 apiKeyEnv 引用的那个环境变量"

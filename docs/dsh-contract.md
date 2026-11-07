@@ -356,28 +356,41 @@ $ ... payload:{"cwd":"/tmp/x","workspaceId":"d11d8851-…"}
 
 ## 七、Provider 配置
 
-适配器是 `@deepseek-ai/dsh-llm-pi-ai`，settings 命名空间 `llm-pi-ai`，
-真源 `$DSH_HOME/settings.yaml`。`providers` 是 dict，与 composition base **按 provider 逐个合并**，
-改完**下一个请求就生效，不用重启**。
+适配器是 `@deepseek-ai/dsh-llm-pi-ai`，entry id 是 `llm-pi-ai`。
+**dsh 0.2 起真源是 patch 层**，`$DSH_HOME/settings.yaml` 是 0.1 的机制（启动时一次性导入，
+文件随即改名 `settings.yaml.imported`）：
+
+- 机器级 `$DSH_HOME/cordis.patch.yml`：对所有 profile 生效，**排在 profile 自己的 patch 之后**
+- profile 级 `$DSH_HOME/profiles/<name>/cordis.patch.yml`
+
+同 id 是**整条 config 替换**——home 层写 `llm-pi-ai` 时，要把别的 profile 拥有的 provider 一并重述，
+否则会被整条盖掉。经 Web 的 Models 页 / settings 表单写入的，由 config-editor 立即应用；
+**直接改 patch 文件要重启进程**（patch 在组合阶段读）。
 
 ```yaml
-llm-pi-ai:
-  providers:
-    quota-proxy:
-      apiKeyEnv: QP_API_KEY          # 凭据是「引用」，每次请求解析，密钥不进这个文件
-      api: openai-completions
-      baseURL: https://<gateway>/v1
-      models:
-        - id: deepseek-v4-flash
+- id: llm-pi-ai
+  config:
+    providers:
+      quota-proxy:
+        apiKeyEnv: QP_API_KEY          # 凭据是「引用」，每次请求解析，密钥不进这个文件
+        api: openai-completions
+        baseURL: https://<gateway>/v1
+        models:
+          - id: deepseek-v4-flash
 ```
 
 要点：
 
-- `apiKeyEnv` 是**引用**。配了但解析不到值 → 请求以 `MISSING_CREDENTIAL` 失败，
-  **不会**回退到环境里碰巧存在的别的 key。完全不配 `apiKeyEnv` 才走 pi-ai 的环境发现。
-- `models` 列表**替换**该路由的自带 catalog（不是扩展）；只想改一个模型用 `modelOverrides`。
+- `apiKeyEnv` 是**引用**。解析顺序：`$DSH_HOME/.credentials.yaml` 的 `refs`（stored）→
+  启动环境 → 项目 `.env` → `$DSH_HOME/.env`。配了但哪一层都没有值 → 请求以
+  `MISSING_CREDENTIAL` 失败，**不会**回退到环境里碰巧存在的别的 key。完全不配 `apiKeyEnv`
+  才走 pi-ai 的环境发现。`headless` bundle 默认 disabled `credentials` 行（只认环境变量），
+  要用 stored ref 得在 profile patch 里显式打开。
+- `models` 列表**替换**该路由的自带 catalog（不是扩展）；只想改一个模型用 `modelOverrides`
+  （只对 pi-ai catalog 里已有的模型成立，手工声明的路由不行）。
 - 私有网关的 URL 认不出思考方言，需要时用 `compat.thinkingFormat`（只在 `openai-completions` 上有）。
-- 写坏的 profile 在**写入处**就被拒（`settings.mutate` 回 `settings-rejected`），不会存进去再静默禁用整个命名空间。
+- 写坏的配置在**写入处**就被拒（`settings.mutate` 回 `settings-rejected`），不会存进去再静默禁用整个命名空间；
+  直接改 patch 写错了由加载期报错，`dsh --profile <name> --dump-config` 能先看出组合问题。
 
 **开发期不需要真 provider**：`@deepseek-ai/dsh-llm-mock-server` 是一个假的 OpenAI 兼容
 HTTP/SSE 端点（**不是 dsh 插件**，也不随 `@deepseek-ai/dsh` 一起装——它在 devDependencies 里）。
